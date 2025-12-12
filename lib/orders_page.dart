@@ -1,5 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'models/order_item.dart';
+import 'services/orders_repository.dart';
 
 class OrdersPage extends StatefulWidget {
   const OrdersPage({super.key});
@@ -11,15 +13,24 @@ class OrdersPage extends StatefulWidget {
 class _OrdersPageState extends State<OrdersPage> {
   int _tabIndex = 0;
   String _status = 'Selesai';
+  final _repo = OrdersRepository();
+  List<OrderItem> _items = const [];
+  bool _loading = true;
 
-  final List<Map<String, String>> _items = List.generate(6, (i) {
-    return {
-      'order': '#92287157',
-      'seller': 'April06',
-      'desc': 'Lorem ipsum dolor sit amet consectetur.',
-      'img': 'https://picsum.photos/seed/p$i/120/90',
-    };
-  });
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    final data = await _repo.fetchOrders(isPurchase: _tabIndex == 0, status: _status);
+    setState(() {
+      _items = data;
+      _loading = false;
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -51,7 +62,10 @@ class _OrdersPageState extends State<OrdersPage> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
-                  onPressed: () => setState(() => _tabIndex = 0),
+                  onPressed: () async {
+                    setState(() => _tabIndex = 0);
+                    await _load();
+                  },
                   child: const Text('Pembelian'),
                 ),
               ),
@@ -64,7 +78,10 @@ class _OrdersPageState extends State<OrdersPage> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
-                  onPressed: () => setState(() => _tabIndex = 1),
+                  onPressed: () async {
+                    setState(() => _tabIndex = 1);
+                    await _load();
+                  },
                   child: const Text('penjualan'),
                 ),
               ),
@@ -78,7 +95,10 @@ class _OrdersPageState extends State<OrdersPage> {
               DropdownMenuItem(value: 'Dibatalkan', child: Text('Dibatalkan')),
               DropdownMenuItem(value: 'Dalam Proses', child: Text('Dalam Proses')),
             ],
-            onChanged: (v) => setState(() => _status = v ?? _status),
+            onChanged: (v) async {
+              setState(() => _status = v ?? _status);
+              await _load();
+            },
             decoration: InputDecoration(
               isDense: true,
               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -94,7 +114,22 @@ class _OrdersPageState extends State<OrdersPage> {
             icon: const Icon(CupertinoIcons.chevron_down, color: primaryBlue),
           ),
           const SizedBox(height: 12),
-          ..._items.map((e) => _OrderTile(data: e)),
+          if (_loading)
+            const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()))
+          else if (_items.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(24),
+              alignment: Alignment.center,
+              child: Column(
+                children: const [
+                  Icon(CupertinoIcons.cube_box, color: primaryBlue, size: 32),
+                  SizedBox(height: 8),
+                  Text('Belum ada pesanan', style: TextStyle(color: Color(0xFF8E99AF))),
+                ],
+              ),
+            )
+          else
+            Column(children: _items.map((e) => _OrderTile(data: e)).toList()),
         ],
       ),
     );
@@ -102,7 +137,7 @@ class _OrdersPageState extends State<OrdersPage> {
 }
 
 class _OrderTile extends StatelessWidget {
-  final Map<String, String> data;
+  final OrderItem data;
   const _OrderTile({required this.data});
 
   @override
@@ -120,7 +155,7 @@ class _OrderTile extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
             child: Image.network(
-              data['img']!,
+              data.imageUrl,
               width: 72,
               height: 72,
               fit: BoxFit.cover,
@@ -137,11 +172,11 @@ class _OrderTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Order ${data['order']}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                Text('Order ${data.orderNumber}', style: const TextStyle(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 4),
-                Text(data['desc']!, style: const TextStyle(color: Color(0xFF8E99AF))),
+                Text(data.description, style: const TextStyle(color: Color(0xFF8E99AF))),
                 const SizedBox(height: 4),
-                Text(data['seller']!, style: const TextStyle(color: Colors.black)),
+                Text(data.sellerName, style: const TextStyle(color: Colors.black)),
               ],
             ),
           ),
