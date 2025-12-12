@@ -1,6 +1,17 @@
 import 'package:flutter/material.dart';
+import 'profile_page.dart';
+import 'orders_page.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  const supabaseUrl = String.fromEnvironment('SUPABASE_URL', defaultValue: '');
+  const supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: '');
+  if (supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty) {
+    await Supabase.initialize(url: supabaseUrl, anonKey: supabaseAnonKey);
+  } else {
+    debugPrint('Supabase env not provided; skipping initialization.');
+  }
   runApp(const MyApp());
 }
 
@@ -28,9 +39,13 @@ class MyApp extends StatelessWidget {
         //
         // This works for code too, not just values: Most code changes can be
         // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const ProfilePage(),
+      routes: {
+        '/profile': (context) => const ProfilePage(),
+        '/orders': (context) => const OrdersPage(),
+      },
     );
   }
 }
