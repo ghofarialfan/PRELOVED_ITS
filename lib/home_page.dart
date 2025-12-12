@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -9,233 +10,184 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  int _navIndex = 0;
+  List<Map<String, dynamic>> _categories = [];
+  List<Map<String, dynamic>> _featured = [];
+  List<Map<String, dynamic>> _newProducts = [];
+  List<Map<String, dynamic>> _forYou = [];
+  bool _loading = true;
 
-  // Dummy data (nanti ganti dari Supabase)
-  final List<_CategoryItem> categories = const [
-    _CategoryItem(title: 'Kategori 1', count: 109, imageUrl: 'https://picsum.photos/seed/cat1/400/300'),
-    _CategoryItem(title: 'Kategori 2', count: 530, imageUrl: 'https://picsum.photos/seed/cat2/400/300'),
-    _CategoryItem(title: 'Kategori 3', count: 87, imageUrl: 'https://picsum.photos/seed/cat3/400/300'),
-    _CategoryItem(title: 'Kategori 4', count: 218, imageUrl: 'https://picsum.photos/seed/cat4/400/300'),
-    _CategoryItem(title: 'Kategori 5', count: 218, imageUrl: 'https://picsum.photos/seed/cat5/400/300'),
-    _CategoryItem(title: 'Kategori 6', count: 218, imageUrl: 'https://picsum.photos/seed/cat6/400/300'),
-  ];
+  Future<void> _load() async {
+    try {
+      final client = Supabase.instance.client;
+      final cats = await client.from('categories').select().limit(12);
+      final featured = await client
+          .from('products')
+          .select()
+          .order('updated_at', ascending: false)
+          .limit(6);
+      final news = await client
+          .from('products')
+          .select()
+          .eq('is_new', true)
+          .order('created_at', ascending: false)
+          .limit(6);
+      final forYou = await client
+          .from('products')
+          .select()
+          .order('view_count', ascending: false);
+      setState(() {
+        _categories = (cats as List<dynamic>).cast<Map<String, dynamic>>();
+        _featured = (featured as List<dynamic>).cast<Map<String, dynamic>>();
+        _newProducts = (news as List<dynamic>).cast<Map<String, dynamic>>();
+        _forYou = (forYou as List<dynamic>).cast<Map<String, dynamic>>();
+        _loading = false;
+      });
+      debugPrint('Loaded categories: ${_categories.length}, featured: ${_featured.length}, new: ${_newProducts.length}, forYou: ${_forYou.length}');
+    } catch (e) {
+      debugPrint('Supabase load error: ${e.toString()}');
+      setState(() {
+        _categories = [];
+        _featured = [];
+        _newProducts = [];
+        _forYou = [];
+        _loading = false;
+      });
+    }
+  }
 
-  final List<_ProductItem> newProducts = const [
-    _ProductItem(
-      title: 'Lorem ipsum dolor sit amet consectetur.',
-      price: 50000,
-      imageUrl: 'https://picsum.photos/seed/new1/500/500',
-    ),
-    _ProductItem(
-      title: 'Lorem ipsum dolor sit amet consectetur.',
-      price: 50000,
-      imageUrl: 'https://picsum.photos/seed/new2/500/500',
-    ),
-    _ProductItem(
-      title: 'Lorem ipsum dolor sit amet consectetur.',
-      price: 50000,
-      imageUrl: 'https://picsum.photos/seed/new3/500/500',
-    ),
-  ];
-
-  final List<_ProductItem> recommended = const [
-    _ProductItem(
-      title: 'Lorem ipsum dolor sit amet consectetur.',
-      price: 50000,
-      imageUrl: 'https://picsum.photos/seed/rec1/700/700',
-    ),
-    _ProductItem(
-      title: 'Lorem ipsum dolor sit amet consectetur.',
-      price: 50000,
-      imageUrl: 'https://picsum.photos/seed/rec2/700/700',
-    ),
-    _ProductItem(
-      title: 'Lorem ipsum dolor sit amet consectetur.',
-      price: 50000,
-      imageUrl: 'https://picsum.photos/seed/rec3/700/700',
-    ),
-    _ProductItem(
-      title: 'Lorem ipsum dolor sit amet consectetur.',
-      price: 50000,
-      imageUrl: 'https://picsum.photos/seed/rec4/700/700',
-    ),
-    _ProductItem(
-      title: 'Lorem ipsum dolor sit amet consectetur.',
-      price: 50000,
-      imageUrl: 'https://picsum.photos/seed/rec5/700/700',
-    ),
-    _ProductItem(
-      title: 'Lorem ipsum dolor sit amet consectetur.',
-      price: 50000,
-      imageUrl: 'https://picsum.photos/seed/rec6/700/700',
-    ),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
 
   @override
   Widget build(BuildContext context) {
+    const primaryBlue = Color(0xFF2563FF);
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFF),
+      backgroundColor: Colors.white,
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+          padding: const EdgeInsets.all(16),
           children: [
-            const SizedBox(height: 6),
-            const Text(
-              'Selamat Datang, Andra',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 12),
-
-            // Search bar + camera
-            _SearchBar(
-              hintText: 'Cari',
-              onCameraTap: () {},
-              onChanged: (v) {},
-            ),
-
-            const SizedBox(height: 14),
-
-            // Banner
-            _BannerCard(
-              imageUrl: 'https://picsum.photos/seed/banner/900/400',
-              onSellTap: () {},
-            ),
-
-            const SizedBox(height: 18),
-
-            // Kategori header
-            _SectionHeader(
-              title: 'Kategori',
-              actionText: 'Lihat Semua',
-              onActionTap: () {},
-            ),
-            const SizedBox(height: 10),
-
-            // Categories grid (2 columns)
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: categories.length,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                childAspectRatio: 1.15,
-              ),
-              itemBuilder: (context, i) {
-                final c = categories[i];
-                return _CategoryCard(
-                  title: c.title,
-                  count: c.count,
-                  imageUrl: c.imageUrl,
-                  onTap: () {},
-                );
-              },
-            ),
-
-            const SizedBox(height: 18),
-
-            // Produk Unggulan (avatars horizontal)
-            const Text(
-              'Produk Unggulan',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              height: 54,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: 10,
-                separatorBuilder: (_, __) => const SizedBox(width: 12),
-                itemBuilder: (context, i) {
-                  return CircleAvatar(
-                    radius: 26,
-                    backgroundColor: Colors.white,
-                    child: CircleAvatar(
-                      radius: 24,
-                      backgroundImage: NetworkImage('https://picsum.photos/seed/feat$i/200/200'),
-                    ),
-                  );
-                },
-              ),
-            ),
-
-            const SizedBox(height: 18),
-
-            // Barang Baru (horizontal cards)
-            _SectionHeader(
-              title: 'Barang Baru',
-              actionText: 'Lihat Semua',
-              onActionTap: () {},
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              height: 220,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: newProducts.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 12),
-                itemBuilder: (context, i) {
-                  final p = newProducts[i];
-                  return _SmallProductCard(
-                    title: p.title,
-                    price: p.price,
-                    imageUrl: p.imageUrl,
-                    onTap: () {},
-                  );
-                },
-              ),
-            ),
-
-            const SizedBox(height: 18),
-
-            // Hanya Untukmu (grid 2 kolom)
-            const Row(
+            Row(
               children: [
-                Text(
-                  'Hanya Untukmu',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: const [
+                      Text('Selamat Datang, Andra', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.black)),
+                    ],
+                  ),
                 ),
-                SizedBox(width: 6),
-                Icon(Icons.star, size: 18),
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(borderRadius: BorderRadius.circular(18), border: Border.all(color: primaryBlue, width: 2)),
+                  child: const Icon(CupertinoIcons.camera, color: primaryBlue, size: 18),
+                ),
               ],
             ),
             const SizedBox(height: 10),
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: recommended.length,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                childAspectRatio: 0.72,
+            TextField(
+              decoration: InputDecoration(
+                hintText: 'Cari',
+                prefixIcon: const Icon(CupertinoIcons.search, color: primaryBlue),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: primaryBlue)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: primaryBlue, width: 2)),
               ),
+            ),
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.network(
+                'https://picsum.photos/seed/banner/800/300',
+                height: 160,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (c, e, s) => Container(height: 160, color: const Color(0xFFE9F0FF)),
+              ),
+            ),
+            const SizedBox(height: 16),
+            if (_loading)
+              const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()))
+            else ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: const [
+                Text('Kategori', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                Text('Lihat Semua', style: TextStyle(color: primaryBlue)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 190,
+              child: GridView.count(
+                crossAxisCount: 2,
+                scrollDirection: Axis.horizontal,
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
+                childAspectRatio: 1,
+                children: _categories.map((c) => _CategoryTile(name: (c['name'] ?? c['title'] ?? 'Kategori').toString(), imageUrl: (c['image_url'] ?? 'https://picsum.photos/seed/cat/100/100').toString())).toList(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text('Produk Unggulan', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            if (_featured.isEmpty && _newProducts.isEmpty && _forYou.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: Text('Belum ada data produk atau koneksi Supabase belum dikonfigurasi',
+                      style: TextStyle(color: Color(0xFF8E99AF))),
+                ),
+              ),
+            _ProductList(items: _featured),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: const [
+                Text('Barang Baru', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                Text('Lihat Semua', style: TextStyle(color: primaryBlue)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _ProductList(items: _newProducts),
+            const SizedBox(height: 16),
+            Row(
+              children: const [
+                Text('Hanya Untukmu', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                SizedBox(width: 6),
+                Icon(CupertinoIcons.star_fill, color: primaryBlue, size: 16),
+              ],
+            ),
+            const SizedBox(height: 8),
+            GridView.builder(
+              physics: const NeverScrollableScrollPhysics(),
+              shrinkWrap: true,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, childAspectRatio: 0.72, mainAxisSpacing: 10, crossAxisSpacing: 10),
+              itemCount: _forYou.length,
               itemBuilder: (context, i) {
-                final p = recommended[i];
-                return _BigProductCard(
-                  title: p.title,
-                  price: p.price,
-                  imageUrl: p.imageUrl,
-                  onTap: () {},
+                final p = _forYou[i];
+                return _ProductCard(
+                  title: (p['name'] ?? p['title'] ?? '').toString(),
+                  price: (p['prize'] ?? p['price'] ?? 0) as num,
+                  imageUrl: (p['image_url'] ?? 'https://picsum.photos/seed/for$i/240/240').toString(),
                 );
               },
             ),
-            const SizedBox(height: 12),
+            ],
           ],
         ),
       ),
-
-      // Bottom Nav
       bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _navIndex,
-        onTap: (i) => setState(() => _navIndex = i),
+        currentIndex: 0,
         type: BottomNavigationBarType.fixed,
-        showSelectedLabels: false,
-        showUnselectedLabels: false,
-        selectedItemColor: Colors.black,
-        unselectedItemColor: const Color(0xFF2563FF),
+        onTap: (i) {
+          if (i == 4) {
+            Navigator.pushNamed(context, '/profile');
+          }
+        },
         items: const [
           BottomNavigationBarItem(icon: Icon(CupertinoIcons.house), label: ''),
           BottomNavigationBarItem(icon: Icon(CupertinoIcons.heart), label: ''),
@@ -243,289 +195,108 @@ class _HomePageState extends State<HomePage> {
           BottomNavigationBarItem(icon: Icon(CupertinoIcons.bag), label: ''),
           BottomNavigationBarItem(icon: Icon(CupertinoIcons.person), label: ''),
         ],
+        selectedItemColor: Colors.black,
+        unselectedItemColor: const Color(0xFF2563FF),
+        showSelectedLabels: false,
+        showUnselectedLabels: false,
+        backgroundColor: Colors.white,
       ),
     );
   }
 }
 
-class _SearchBar extends StatelessWidget {
-  final String hintText;
-  final VoidCallback onCameraTap;
-  final ValueChanged<String> onChanged;
-  const _SearchBar({
-    required this.hintText,
-    required this.onCameraTap,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 44,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF2563FF), width: 1.5),
-      ),
-      child: Row(
-        children: [
-          const SizedBox(width: 12),
-          const Icon(CupertinoIcons.search, size: 18, color: Colors.black54),
-          const SizedBox(width: 8),
-          Expanded(
-            child: TextField(
-              onChanged: onChanged,
-              decoration: InputDecoration(
-                hintText: hintText,
-                border: InputBorder.none,
-                isDense: true,
-                hintStyle: const TextStyle(color: Colors.black45),
-              ),
-            ),
-          ),
-          IconButton(
-            onPressed: onCameraTap,
-            icon: const Icon(CupertinoIcons.camera, color: Color(0xFF2563FF)),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BannerCard extends StatelessWidget {
+class _CategoryTile extends StatelessWidget {
+  final String name;
   final String imageUrl;
-  final VoidCallback onSellTap;
-  const _BannerCard({required this.imageUrl, required this.onSellTap});
+  const _CategoryTile({required this.name, required this.imageUrl});
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(14),
-      child: Stack(
-        children: [
-          AspectRatio(
-            aspectRatio: 16 / 7,
-            child: Image.network(imageUrl, fit: BoxFit.cover),
-          ),
-          Positioned(
-            left: 12,
-            bottom: 12,
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.black,
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-              onPressed: onSellTap,
-              child: const Text('Mulai Berjualan'),
-            ),
-          )
-        ],
-      ),
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  final String title;
-  final String actionText;
-  final VoidCallback onActionTap;
-  const _SectionHeader({
-    required this.title,
-    required this.actionText,
-    required this.onActionTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
+    return Column(
       children: [
-        Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-        const Spacer(),
-        InkWell(
-          onTap: onActionTap,
-          child: Row(
-            children: [
-              Text(actionText, style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.w600)),
-              const SizedBox(width: 8),
-              const CircleAvatar(
-                radius: 12,
-                backgroundColor: Color(0xFF2563FF),
-                child: Icon(CupertinoIcons.chevron_forward, size: 14, color: Colors.white),
-              )
-            ],
+        ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Image.network(
+            imageUrl,
+            width: 64,
+            height: 64,
+            fit: BoxFit.cover,
+            errorBuilder: (c, e, s) => Container(width: 64, height: 64, color: const Color(0xFFE9F0FF)),
           ),
-        )
+        ),
+        const SizedBox(height: 4),
+        Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
       ],
     );
   }
 }
 
-class _CategoryCard extends StatelessWidget {
-  final String title;
-  final int count;
-  final String imageUrl;
-  final VoidCallback onTap;
-
-  const _CategoryCard({
-    required this.title,
-    required this.count,
-    required this.imageUrl,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Column(
-            children: [
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: Image.network(imageUrl, fit: BoxFit.cover, width: double.infinity),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE9F0FF),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text('$count', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
-                  )
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SmallProductCard extends StatelessWidget {
-  final String title;
-  final int price;
-  final String imageUrl;
-  final VoidCallback onTap;
-
-  const _SmallProductCard({
-    required this.title,
-    required this.price,
-    required this.imageUrl,
-    required this.onTap,
-  });
-
-  String get _priceText => 'Rp ${price.toString().replaceAllMapped(RegExp(r"(\d)(?=(\d{3})+(?!\d))"), (m) => "${m[1]}.")}';
+class _ProductList extends StatelessWidget {
+  final List<Map<String, dynamic>> items;
+  const _ProductList({required this.items});
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 160,
-      child: Material(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: AspectRatio(
-                    aspectRatio: 1,
-                    child: Image.network(imageUrl, fit: BoxFit.cover),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
-                const SizedBox(height: 8),
-                Text(_priceText, style: const TextStyle(fontWeight: FontWeight.w800)),
-              ],
-            ),
-          ),
-        ),
+      height: 210,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 10),
+        itemBuilder: (context, i) {
+          final p = items[i];
+          return _ProductCard(
+            title: (p['name'] ?? p['title'] ?? '').toString(),
+            price: (p['prize'] ?? p['price'] ?? 0) as num,
+            imageUrl: (p['image_url'] ?? 'https://picsum.photos/seed/p$i/240/160').toString(),
+          );
+        },
       ),
     );
   }
 }
 
-class _BigProductCard extends StatelessWidget {
+class _ProductCard extends StatelessWidget {
   final String title;
-  final int price;
+  final num price;
   final String imageUrl;
-  final VoidCallback onTap;
-
-  const _BigProductCard({
-    required this.title,
-    required this.price,
-    required this.imageUrl,
-    required this.onTap,
-  });
-
-  String get _priceText => 'Rp ${price.toString().replaceAllMapped(RegExp(r"(\d)(?=(\d{3})+(?!\d))"), (m) => "${m[1]}.")}';
+  const _ProductCard({required this.title, required this.price, required this.imageUrl});
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: AspectRatio(
-                  aspectRatio: 1,
-                  child: Image.network(imageUrl, fit: BoxFit.cover),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
-              const SizedBox(height: 8),
-              Text(_priceText, style: const TextStyle(fontWeight: FontWeight.w800)),
-            ],
+    const primaryBlue = Color(0xFF2563FF);
+    const textSecondary = Color(0xFF8E99AF);
+    return Container(
+      width: 160,
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), boxShadow: [
+        BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 4)),
+      ]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: const BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12)),
+            child: Image.network(
+              imageUrl,
+              height: 110,
+              width: 160,
+              fit: BoxFit.cover,
+              errorBuilder: (c, e, s) => Container(height: 110, width: 160, color: const Color(0xFFE9F0FF)),
+            ),
           ),
-        ),
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: textSecondary)),
+                const SizedBox(height: 6),
+                Text('Rp ${price.toStringAsFixed(0)}', style: const TextStyle(color: primaryBlue, fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
-}
-
-class _CategoryItem {
-  final String title;
-  final int count;
-  final String imageUrl;
-  const _CategoryItem({required this.title, required this.count, required this.imageUrl});
-}
-
-class _ProductItem {
-  final String title;
-  final int price;
-  final String imageUrl;
-  const _ProductItem({required this.title, required this.price, required this.imageUrl});
 }
