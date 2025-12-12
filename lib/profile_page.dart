@@ -11,12 +11,66 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   int _selectedIndex = 4;
+  String? _name;
+  String? _avatarUrl;
+
+  Future<void> _loadUserProfile() async {
+    try {
+      final client = Supabase.instance.client;
+      final user = client.auth.currentUser;
+      if (user == null) return;
+      final resId = await client.from('users').select().eq('id', user.id).limit(1);
+      var list = (resId as List<dynamic>);
+      if (list.isEmpty) {
+        final resAuth = await client.from('users').select().eq('auth_id', user.id).limit(1);
+        list = (resAuth as List<dynamic>);
+      }
+      if (list.isNotEmpty) {
+        final m = list.first as Map<String, dynamic>;
+        final name = (m['full_name'] ?? '').toString();
+        final avatar = (m['avatar_url'] ?? '').toString();
+        setState(() {
+          _name = name.isNotEmpty ? name : null;
+          _avatarUrl = avatar.isNotEmpty ? avatar : null;
+        });
+        debugPrint('Loaded user full_name: ${_name ?? '-'}');
+      } else {
+        final meta = user.userMetadata ?? {};
+        final candidateName = (meta['full_name'] ?? meta['name'] ?? user.email?.split('@').first ?? '').toString();
+        final candidateAvatar = (meta['avatar_url'] ?? meta['picture'] ?? '').toString();
+        try {
+          await client
+              .from('users')
+              .upsert({
+                'id': user.id,
+                'auth_id': user.id,
+                'full_name': candidateName,
+                'avatar_url': candidateAvatar,
+              }, onConflict: 'id');
+          setState(() {
+            _name = candidateName.isNotEmpty ? candidateName : null;
+            _avatarUrl = candidateAvatar.isNotEmpty ? candidateAvatar : null;
+          });
+          debugPrint('Upserted users row with full_name: ${_name ?? '-'}');
+        } catch (e) {
+          debugPrint('Users upsert failed: ${e.toString()}');
+        }
+      }
+    } catch (_) {}
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserProfile();
+  }
 
   String get _displayName {
     try {
       final user = Supabase.instance.client.auth.currentUser;
       final meta = user?.userMetadata ?? {};
-      final name = (meta['full_name'] ?? meta['name'] ?? '').toString();
+      if (_name != null && _name!.isNotEmpty) return _name!;
+      final name = (meta['full_name'] ?? '').toString();
       if (name.isNotEmpty) return name;
       final email = user?.email ?? '';
       if (email.isNotEmpty) return email.split('@').first;
@@ -26,6 +80,10 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_name == null || _avatarUrl == null) {
+      // lazy load profile from users table; safe to call multiple times
+      _loadUserProfile();
+    }
     return Scaffold(
       appBar: AppBar(
         title: const Text('Profil'),
@@ -39,7 +97,9 @@ class _ProfilePageState extends State<ProfilePage> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            Container(
+            InkWell(
+              onTap: () => Navigator.pushNamed(context, '/edit_profile'),
+              child: Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: const Color(0xFF2563FF),
@@ -63,7 +123,9 @@ class _ProfilePageState extends State<ProfilePage> {
                     ),
                     clipBehavior: Clip.hardEdge,
                     child: Image.network(
-                      'https://i.pravatar.cc/80?img=1',
+                      (_avatarUrl == null || _avatarUrl!.isEmpty)
+                          ? 'https://i.pravatar.cc/80?img=1'
+                          : _avatarUrl!,
                       fit: BoxFit.cover,
                       errorBuilder: (context, error, stack) {
                         return const Center(child: Icon(CupertinoIcons.person_fill, color: Color(0xFF2563FF)));
@@ -89,6 +151,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                   const Icon(CupertinoIcons.chevron_forward, color: Colors.white),
                 ],
+              ),
               ),
             ),
             const SizedBox(height: 20),
@@ -116,6 +179,10 @@ class _ProfilePageState extends State<ProfilePage> {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: (i) {
+          if (i == 0) {
+            Navigator.pushNamed(context, '/home');
+            return;
+          }
           setState(() {
             _selectedIndex = i;
           });
