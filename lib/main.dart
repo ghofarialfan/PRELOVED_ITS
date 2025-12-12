@@ -1,15 +1,20 @@
 import 'package:flutter/material.dart';
+import 'profile_page.dart';
+import 'orders_page.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  await Supabase.initialize(
-    url: 'https://qasmoyqdipdwngghboob.supabase.co',
-    anonKey:
-        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFhc21veXFkaXBkd25nZ2hib29iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQzMzE4MjMsImV4cCI6MjA3OTkwNzgyM30.r-G27SvnEleAB03l9cGr64nuuCurvAcpX4aR9SjWGzY',
+  const supabaseUrl = String.fromEnvironment('SUPABASE_URL', defaultValue: '');
+  const supabaseAnonKey = String.fromEnvironment(
+    'SUPABASE_ANON_KEY',
+    defaultValue: '',
   );
-
+  if (supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty) {
+    await Supabase.initialize(url: supabaseUrl, anonKey: supabaseAnonKey);
+  } else {
+    debugPrint('Supabase env not provided; skipping initialization.');
+  }
   runApp(const MyApp());
 }
 
@@ -21,10 +26,28 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'PreLovedITS',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        useMaterial3: true,
+        // This is the theme of your application.
+        //
+        // TRY THIS: Try running your application with "flutter run". You'll see
+        // the application has a purple toolbar. Then, without quitting the app,
+        // try changing the seedColor in the colorScheme below to Colors.green
+        // and then invoke "hot reload" (save your changes or press the "hot
+        // reload" button in a Flutter-supported IDE, or press "r" if you used
+        // the command line to start the app).
+        //
+        // Notice that the counter didn't reset back to zero; the application
+        // state is not lost during the reload. To reset the state, use hot
+        // restart instead.
+        //
+        // This works for code too, not just values: Most code changes can be
+        // tested with just a hot reload.
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
       ),
-      home: const MyHomePage(title: 'PreLovedITS - Supabase Test'),
+      home: const ProfilePage(),
+      routes: {
+        '/profile': (context) => const ProfilePage(),
+        '/orders': (context) => const OrdersPage(),
+      },
     );
   }
 }
