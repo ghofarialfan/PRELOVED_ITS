@@ -1,161 +1,53 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter/foundation.dart';
+
 import 'profile_page.dart';
 import 'orders_page.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'seller_profile_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  const supabaseUrl = String.fromEnvironment('SUPABASE_URL', defaultValue: '');
-  const supabaseAnonKey = String.fromEnvironment(
-    'SUPABASE_ANON_KEY',
-    defaultValue: '',
-  );
-  if (supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty) {
-    await Supabase.initialize(url: supabaseUrl, anonKey: supabaseAnonKey);
-  } else {
-    debugPrint('Supabase env not provided; skipping initialization.');
+
+  const devUrl = 'https://qasmoyqdipdwngghboob.supabase.co';
+  const devAnonKey =
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFhc21veXFkaXBkd25nZ2hib29iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQzMzE4MjMsImV4cCI6MjA3OTkwNzgyM30.r-G27SvnEleAB03l9cGr64nuuCurvAcpX4aR9SjWGzY';
+
+  const envUrl = String.fromEnvironment('SUPABASE_URL', defaultValue: '');
+  const envAnon = String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: '');
+
+  final supabaseUrl = envUrl.isNotEmpty ? envUrl : devUrl;
+  final supabaseAnonKey = envAnon.isNotEmpty ? envAnon : devAnonKey;
+
+  await Supabase.initialize(url: supabaseUrl, anonKey: supabaseAnonKey);
+
+  if (kDebugMode) {
+    debugPrint('Supabase initialized: $supabaseUrl');
   }
+
   runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
+  // untuk testing (ownerId auth.users.id kamu)
+  static const testOwnerId = '7bff2e63-d6ce-4072-88ae-c5c6ac7b36b0';
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'PreLovedITS',
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+        useMaterial3: true,
       ),
       home: const ProfilePage(),
       routes: {
         '/profile': (context) => const ProfilePage(),
         '/orders': (context) => const OrdersPage(),
+        '/seller': (context) => const SellerProfilePage(ownerId: testOwnerId),
       },
-    );
-  }
-}
-
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-  final String title;
-
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
-
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  // Status teks biar kamu bisa lihat hasil tes juga di layar
-  String _supabaseStatus = 'Belum dites...';
-
-  @override
-  void initState() {
-    super.initState();
-    _testSupabase(); // auto tes saat app dibuka
-  }
-
-  void _incrementCounter() {
-    setState(() {
-      _counter++;
-    });
-  }
-
-  Future<void> _testSupabase() async {
-    setState(() {
-      _supabaseStatus = 'Testing Supabase...';
-    });
-
-    try {
-      // Tes query sederhana (tabel public read)
-      final rows = await Supabase.instance.client
-          .from('categories')
-          .select()
-          .limit(5);
-
-      setState(() {
-        _supabaseStatus = '✅ CONNECT OK\nResult: $rows';
-      });
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('✅ Supabase OK: $rows')));
-    } catch (e) {
-      setState(() {
-        _supabaseStatus = '❌ CONNECT FAIL\nError: $e';
-      });
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('❌ Supabase ERROR: $e')));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: Text(widget.title),
-        actions: [
-          IconButton(
-            tooltip: 'Test Supabase lagi',
-            onPressed: _testSupabase,
-            icon: const Icon(Icons.wifi_tethering),
-          ),
-        ],
-      ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              const Text('Counter (UI lama kamu tetap ada):'),
-              Text(
-                '$_counter',
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'Status koneksi Supabase:',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Text(_supabaseStatus, textAlign: TextAlign.center),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _testSupabase,
-                child: const Text('Tes Supabase Sekarang'),
-              ),
-            ],
-          ),
-        ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ),
     );
   }
 }
