@@ -23,15 +23,10 @@ class _ProfilePageState extends State<ProfilePage> {
       final resId = await client.from('users').select().eq('id', user.id).limit(1);
       var list = (resId as List<dynamic>);
 
-      if (list.isEmpty) {
-        final resAuth = await client.from('users').select().eq('auth_id', user.id).limit(1);
-        list = (resAuth as List<dynamic>);
-      }
-
       if (list.isNotEmpty) {
         final m = list.first as Map<String, dynamic>;
         final name = (m['full_name'] ?? '').toString();
-        final avatar = (m['avatar_url'] ?? '').toString();
+        final avatar = (m['avatar_url'] ?? m['photo_url'] ?? '').toString();
         setState(() {
           _name = name.isNotEmpty ? name : null;
           _avatarUrl = avatar.isNotEmpty ? avatar : null;
@@ -42,13 +37,15 @@ class _ProfilePageState extends State<ProfilePage> {
         final candidateName =
             (meta['full_name'] ?? meta['name'] ?? user.email?.split('@').first ?? '').toString();
         final candidateAvatar = (meta['avatar_url'] ?? meta['picture'] ?? '').toString();
+        final candidateUsername = user.email?.split('@').first ?? candidateName;
 
         try {
           await client.from('users').upsert({
             'id': user.id,
-            'auth_id': user.id,
             'full_name': candidateName,
-            'avatar_url': candidateAvatar,
+            'photo_url': candidateAvatar,
+            if ((user.email ?? '').isNotEmpty) 'email': user.email,
+            'username': candidateUsername,
           }, onConflict: 'id');
 
           setState(() {
@@ -210,10 +207,11 @@ class _ProfilePageState extends State<ProfilePage> {
               onTap: () => Navigator.pushNamed(context, '/orders'),
             ),
             const SizedBox(height: 8),
-            const _MenuItem(
+            _MenuItem(
               icon: CupertinoIcons.heart,
               title: 'Favorit',
               subtitle: 'Atur barang preloved favorit kamu',
+              onTap: () => Navigator.pushNamed(context, '/favorites'),
             ),
             const SizedBox(height: 8),
             _MenuItem(
@@ -230,6 +228,14 @@ class _ProfilePageState extends State<ProfilePage> {
         onTap: (i) {
           if (i == 0) {
             Navigator.pushNamed(context, '/home');
+            return;
+          }
+          if (i == 1) {
+            Navigator.pushNamed(context, '/favorites');
+            return;
+          }
+          if (i == 2) {
+            Navigator.pushNamed(context, '/orders');
             return;
           }
           setState(() {

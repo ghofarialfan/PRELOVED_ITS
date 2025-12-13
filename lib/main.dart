@@ -6,6 +6,7 @@ import 'profile_page.dart';
 import 'orders_page.dart';
 import 'edit_profile_page.dart';
 import 'edit_photo_page.dart';
+import 'favorites_page.dart';
 
 import 'auth/login_email_page.dart';
 import 'auth/register_page.dart';
@@ -50,6 +51,7 @@ class MyApp extends StatelessWidget {
         '/orders': (context) => const OrdersPage(),
         '/edit_profile': (context) => const EditProfilePage(),
         '/edit_photo': (context) => const EditPhotoPage(),
+        '/favorites': (context) => const FavoritesPage(),
 
         // auth routes
         '/login': (context) => const LoginEmailPage(),
