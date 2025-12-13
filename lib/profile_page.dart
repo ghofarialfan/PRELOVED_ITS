@@ -19,12 +19,15 @@ class _ProfilePageState extends State<ProfilePage> {
       final client = Supabase.instance.client;
       final user = client.auth.currentUser;
       if (user == null) return;
+
       final resId = await client.from('users').select().eq('id', user.id).limit(1);
       var list = (resId as List<dynamic>);
+
       if (list.isEmpty) {
         final resAuth = await client.from('users').select().eq('auth_id', user.id).limit(1);
         list = (resAuth as List<dynamic>);
       }
+
       if (list.isNotEmpty) {
         final m = list.first as Map<String, dynamic>;
         final name = (m['full_name'] ?? '').toString();
@@ -36,17 +39,18 @@ class _ProfilePageState extends State<ProfilePage> {
         debugPrint('Loaded user full_name: ${_name ?? '-'}');
       } else {
         final meta = user.userMetadata ?? {};
-        final candidateName = (meta['full_name'] ?? meta['name'] ?? user.email?.split('@').first ?? '').toString();
+        final candidateName =
+            (meta['full_name'] ?? meta['name'] ?? user.email?.split('@').first ?? '').toString();
         final candidateAvatar = (meta['avatar_url'] ?? meta['picture'] ?? '').toString();
+
         try {
-          await client
-              .from('users')
-              .upsert({
-                'id': user.id,
-                'auth_id': user.id,
-                'full_name': candidateName,
-                'avatar_url': candidateAvatar,
-              }, onConflict: 'id');
+          await client.from('users').upsert({
+            'id': user.id,
+            'auth_id': user.id,
+            'full_name': candidateName,
+            'avatar_url': candidateAvatar,
+          }, onConflict: 'id');
+
           setState(() {
             _name = candidateName.isNotEmpty ? candidateName : null;
             _avatarUrl = candidateAvatar.isNotEmpty ? candidateAvatar : null;
@@ -78,12 +82,47 @@ class _ProfilePageState extends State<ProfilePage> {
     return 'Pengguna';
   }
 
+  Future<void> _logout() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Keluar'),
+        content: const Text('Yakin ingin logout?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true) return;
+
+    try {
+      await Supabase.instance.client.auth.signOut();
+      if (!mounted) return;
+
+      // bersihkan history biar tidak bisa back ke halaman sebelumnya
+      Navigator.pushNamedAndRemoveUntil(context, '/login', (r) => false);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Gagal logout: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_name == null || _avatarUrl == null) {
-      // lazy load profile from users table; safe to call multiple times
       _loadUserProfile();
     }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Profil'),
@@ -100,58 +139,67 @@ class _ProfilePageState extends State<ProfilePage> {
             InkWell(
               onTap: () => Navigator.pushNamed(context, '/edit_profile'),
               child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF2563FF),
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.1),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 52,
-                    height: 52,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(26),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2563FF),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.1),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
                     ),
-                    clipBehavior: Clip.hardEdge,
-                    child: Image.network(
-                      (_avatarUrl == null || _avatarUrl!.isEmpty)
-                          ? 'https://i.pravatar.cc/80?img=1'
-                          : _avatarUrl!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stack) {
-                        return const Center(child: Icon(CupertinoIcons.person_fill, color: Color(0xFF2563FF)));
-                      },
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 52,
+                      height: 52,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(26),
+                      ),
+                      clipBehavior: Clip.hardEdge,
+                      child: Image.network(
+                        (_avatarUrl == null || _avatarUrl!.isEmpty)
+                            ? 'https://i.pravatar.cc/80?img=1'
+                            : _avatarUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stack) {
+                          return const Center(
+                            child: Icon(
+                              CupertinoIcons.person_fill,
+                              color: Color(0xFF2563FF),
+                            ),
+                          );
+                        },
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _displayName,
-                          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
-                        ),
-                        SizedBox(height: 4),
-                        const Text(
-                          'Edit Profil',
-                          style: TextStyle(color: Colors.white70, fontSize: 12),
-                        ),
-                      ],
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _displayName,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Edit Profil',
+                            style: TextStyle(color: Colors.white70, fontSize: 12),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const Icon(CupertinoIcons.chevron_forward, color: Colors.white),
-                ],
-              ),
+                    const Icon(CupertinoIcons.chevron_forward, color: Colors.white),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 20),
@@ -162,7 +210,7 @@ class _ProfilePageState extends State<ProfilePage> {
               onTap: () => Navigator.pushNamed(context, '/orders'),
             ),
             const SizedBox(height: 8),
-            _MenuItem(
+            const _MenuItem(
               icon: CupertinoIcons.heart,
               title: 'Favorit',
               subtitle: 'Atur barang preloved favorit kamu',
@@ -172,6 +220,7 @@ class _ProfilePageState extends State<ProfilePage> {
               icon: CupertinoIcons.square_arrow_right,
               title: 'Log out',
               subtitle: null,
+              onTap: _logout,
             ),
           ],
         ),
@@ -188,27 +237,12 @@ class _ProfilePageState extends State<ProfilePage> {
           });
         },
         type: BottomNavigationBarType.fixed,
-        items: [
-          BottomNavigationBarItem(
-            icon: const Icon(CupertinoIcons.house),
-            label: '',
-          ),
-          BottomNavigationBarItem(
-            icon: const Icon(CupertinoIcons.heart),
-            label: '',
-          ),
-          BottomNavigationBarItem(
-            icon: const Icon(CupertinoIcons.list_bullet),
-            label: '',
-          ),
-          BottomNavigationBarItem(
-            icon: const Icon(CupertinoIcons.bag),
-            label: '',
-          ),
-          BottomNavigationBarItem(
-            icon: const Icon(CupertinoIcons.person),
-            label: '',
-          ),
+        items: const [
+          BottomNavigationBarItem(icon: Icon(CupertinoIcons.house), label: ''),
+          BottomNavigationBarItem(icon: Icon(CupertinoIcons.heart), label: ''),
+          BottomNavigationBarItem(icon: Icon(CupertinoIcons.list_bullet), label: ''),
+          BottomNavigationBarItem(icon: Icon(CupertinoIcons.bag), label: ''),
+          BottomNavigationBarItem(icon: Icon(CupertinoIcons.person), label: ''),
         ],
         selectedItemColor: Colors.black,
         unselectedItemColor: const Color(0xFF2563FF),
@@ -244,8 +278,13 @@ class _MenuItem extends StatelessWidget {
           ),
           child: Icon(icon, color: const Color(0xFF2563FF)),
         ),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black)),
-        subtitle: subtitle != null ? Text(subtitle!, style: const TextStyle(color: Color(0xFF8E99AF), fontSize: 12)) : null,
+        title: Text(
+          title,
+          style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black),
+        ),
+        subtitle: subtitle != null
+            ? Text(subtitle!, style: const TextStyle(color: Color(0xFF8E99AF), fontSize: 12))
+            : null,
         trailing: const Icon(CupertinoIcons.chevron_forward, color: Colors.black38),
         onTap: onTap,
       ),
