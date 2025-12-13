@@ -20,5 +20,19 @@ class OrdersRepository {
       return [];
     }
   }
+
+  Future<void> submitReview({required String orderId, required int rating, required String comment}) async {
+    final client = Supabase.instance.client;
+    final user = client.auth.currentUser;
+    if (user == null) {
+      throw Exception('User belum login');
+    }
+    await client.from('product_reviews').insert({
+      'order_id': orderId,
+      'user_id': user.id,
+      'rating': rating,
+      if (comment.trim().isNotEmpty) 'comment': comment.trim(),
+    });
+  }
 }
 

@@ -27,13 +27,9 @@ class _EditPhotoPageState extends State<EditPhotoPage> {
       }
       final resId = await client.from('users').select().eq('id', user.id).limit(1);
       var list = (resId as List<dynamic>);
-      if (list.isEmpty) {
-        final resAuth = await client.from('users').select().eq('auth_id', user.id).limit(1);
-        list = (resAuth as List<dynamic>);
-      }
       if (list.isNotEmpty) {
         final m = list.first as Map<String, dynamic>;
-        _avatarUrl = (m['avatar_url'] ?? '').toString();
+        _avatarUrl = (m['avatar_url'] ?? m['photo_url'] ?? '').toString();
       }
     } catch (_) {}
     setState(() => _loading = false);
@@ -65,7 +61,13 @@ class _EditPhotoPageState extends State<EditPhotoPage> {
       }
 
       if (finalUrl != null && finalUrl.isNotEmpty) {
-        await client.from('users').upsert({'id': user.id, 'auth_id': user.id, 'avatar_url': finalUrl}, onConflict: 'id');
+        final username = (user.email ?? '').split('@').first;
+        await client.from('users').upsert({
+          'id': user.id,
+          'photo_url': finalUrl,
+          if ((user.email ?? '').isNotEmpty) 'email': user.email,
+          'username': username.isNotEmpty ? username : null,
+        }, onConflict: 'id');
       }
 
       if (!mounted) return;

@@ -28,16 +28,12 @@ class _EditProfilePageState extends State<EditProfilePage> {
       _emailCtrl.text = user.email ?? '';
       final resId = await client.from('users').select().eq('id', user.id).limit(1);
       var list = (resId as List<dynamic>);
-      if (list.isEmpty) {
-        final resAuth = await client.from('users').select().eq('auth_id', user.id).limit(1);
-        list = (resAuth as List<dynamic>);
-      }
       if (list.isNotEmpty) {
         final m = list.first as Map<String, dynamic>;
         _nameCtrl.text = (m['full_name'] ?? '').toString();
         _bioCtrl.text = (m['bio'] ?? '').toString();
         _linkCtrl.text = (m['link'] ?? '').toString();
-        _avatarUrl = (m['avatar_url'] ?? '').toString();
+        _avatarUrl = (m['avatar_url'] ?? m['photo_url'] ?? '').toString();
       }
     } catch (_) {}
     setState(() => _loading = false);
@@ -48,11 +44,13 @@ class _EditProfilePageState extends State<EditProfilePage> {
       final client = Supabase.instance.client;
       final user = client.auth.currentUser;
       if (user == null) return;
+      final username = (user.email ?? '').split('@').first;
       final payload = {
         'id': user.id,
-        'auth_id': user.id,
         'full_name': _nameCtrl.text.trim(),
-        if (_avatarUrl != null) 'avatar_url': _avatarUrl,
+        if (_avatarUrl != null) 'photo_url': _avatarUrl,
+        if ((user.email ?? '').isNotEmpty) 'email': user.email,
+        'username': username.isNotEmpty ? username : _nameCtrl.text.trim(),
         if (_bioCtrl.text.trim().isNotEmpty) 'bio': _bioCtrl.text.trim(),
         if (_linkCtrl.text.trim().isNotEmpty) 'link': _linkCtrl.text.trim(),
       };

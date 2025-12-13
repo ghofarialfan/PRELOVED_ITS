@@ -17,6 +17,124 @@ class _OrdersPageState extends State<OrdersPage> {
   List<OrderItem> _items = const [];
   bool _loading = true;
 
+  Future<void> _openReviewDialog(OrderItem item) async {
+    const primaryBlue = Color(0xFF2563FF);
+    const blueSoft = Color(0xFFE9F0FF);
+    int rating = 0;
+    final commentCtrl = TextEditingController();
+    bool submitting = false;
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setS) {
+            return Padding(
+              padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Review', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(24),
+                          child: Image.network(
+                            item.imageUrl,
+                            width: 48,
+                            height: 48,
+                            fit: BoxFit.cover,
+                            errorBuilder: (c, e, s) => Container(width: 48, height: 48, color: blueSoft, child: const Icon(CupertinoIcons.photo, color: primaryBlue)),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Order ${item.orderNumber}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                              Text(item.description, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF8E99AF))),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.start,
+                      children: List.generate(5, (i) {
+                        final filled = i < rating;
+                        return IconButton(
+                          onPressed: () => setS(() => rating = i + 1),
+                          icon: Icon(filled ? Icons.star : Icons.star_border, color: primaryBlue),
+                        );
+                      }),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: commentCtrl,
+                      maxLines: 4,
+                      decoration: InputDecoration(
+                        hintText: 'Tambahkan Komentar',
+                        filled: true,
+                        fillColor: blueSoft,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.transparent)),
+                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: primaryBlue, width: 2)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: submitting
+                            ? null
+                            : () async {
+                                final nav = Navigator.of(ctx);
+                                final messenger = ScaffoldMessenger.of(context);
+                                if (rating == 0) {
+                                  messenger.showSnackBar(const SnackBar(content: Text('Pilih rating')));
+                                  return;
+                                }
+                                setS(() => submitting = true);
+                                try {
+                                  await _repo.submitReview(orderId: item.id, rating: rating, comment: commentCtrl.text);
+                                  if (!mounted) return;
+                                  nav.pop();
+                                  messenger.showSnackBar(const SnackBar(content: Text('Review terkirim')));
+                                } catch (e) {
+                                  if (!mounted) return;
+                                  messenger.showSnackBar(SnackBar(content: Text('Gagal kirim review: $e')));
+                                  setS(() => submitting = false);
+                                }
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primaryBlue,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        child: submitting
+                            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                            : const Text('Kirimkan'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _load() async {
     setState(() => _loading = true);
     final data = await _repo.fetchOrders(isPurchase: _tabIndex == 0, status: _status);
@@ -129,7 +247,7 @@ class _OrdersPageState extends State<OrdersPage> {
               ),
             )
           else
-            Column(children: _items.map((e) => _OrderTile(data: e)).toList()),
+            Column(children: _items.map((e) => _OrderTile(data: e, onReview: _status == 'Selesai' ? () => _openReviewDialog(e) : null)).toList()),
         ],
       ),
     );
@@ -138,7 +256,8 @@ class _OrdersPageState extends State<OrdersPage> {
 
 class _OrderTile extends StatelessWidget {
   final OrderItem data;
-  const _OrderTile({required this.data});
+  final VoidCallback? onReview;
+  const _OrderTile({required this.data, this.onReview});
 
   @override
   Widget build(BuildContext context) {
@@ -187,7 +306,7 @@ class _OrderTile extends StatelessWidget {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
               padding: const EdgeInsets.symmetric(horizontal: 16),
             ),
-            onPressed: () {},
+            onPressed: onReview,
             child: const Text('Review'),
           ),
         ],

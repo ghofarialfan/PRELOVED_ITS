@@ -184,6 +184,10 @@ class _HomePageState extends State<HomePage> {
         currentIndex: 0,
         type: BottomNavigationBarType.fixed,
         onTap: (i) {
+          if (i == 1) {
+            Navigator.pushNamed(context, '/favorites');
+            return;
+          }
           if (i == 4) {
             Navigator.pushNamed(context, '/profile');
           }
