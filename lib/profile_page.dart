@@ -11,12 +11,83 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   int _selectedIndex = 4;
+  String? _name;
+  String? _avatarUrl;
+
+  Future<void> _loadUserProfile() async {
+    try {
+      final client = Supabase.instance.client;
+      final user = client.auth.currentUser;
+      if (user == null) return;
+
+      final resId = await client
+          .from('users')
+          .select()
+          .eq('id', user.id)
+          .limit(1);
+      var list = (resId as List<dynamic>);
+
+      if (list.isEmpty) {
+        final resAuth = await client
+            .from('users')
+            .select()
+            .eq('auth_id', user.id)
+            .limit(1);
+        list = (resAuth as List<dynamic>);
+      }
+
+      if (list.isNotEmpty) {
+        final m = list.first as Map<String, dynamic>;
+        final name = (m['full_name'] ?? '').toString();
+        final avatar = (m['avatar_url'] ?? '').toString();
+        setState(() {
+          _name = name.isNotEmpty ? name : null;
+          _avatarUrl = avatar.isNotEmpty ? avatar : null;
+        });
+        debugPrint('Loaded user full_name: ${_name ?? '-'}');
+      } else {
+        final meta = user.userMetadata ?? {};
+        final candidateName =
+            (meta['full_name'] ??
+                    meta['name'] ??
+                    user.email?.split('@').first ??
+                    '')
+                .toString();
+        final candidateAvatar = (meta['avatar_url'] ?? meta['picture'] ?? '')
+            .toString();
+
+        try {
+          await client.from('users').upsert({
+            'id': user.id,
+            'auth_id': user.id,
+            'full_name': candidateName,
+            'avatar_url': candidateAvatar,
+          }, onConflict: 'id');
+
+          setState(() {
+            _name = candidateName.isNotEmpty ? candidateName : null;
+            _avatarUrl = candidateAvatar.isNotEmpty ? candidateAvatar : null;
+          });
+          debugPrint('Upserted users row with full_name: ${_name ?? '-'}');
+        } catch (e) {
+          debugPrint('Users upsert failed: ${e.toString()}');
+        }
+      }
+    } catch (_) {}
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserProfile();
+  }
 
   String get _displayName {
     try {
       final user = Supabase.instance.client.auth.currentUser;
       final meta = user?.userMetadata ?? {};
-      final name = (meta['full_name'] ?? meta['name'] ?? '').toString();
+      if (_name != null && _name!.isNotEmpty) return _name!;
+      final name = (meta['full_name'] ?? '').toString();
       if (name.isNotEmpty) return name;
 
       final email = user?.email ?? '';
@@ -26,32 +97,46 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _logout() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Keluar'),
+        content: const Text('Yakin ingin logout?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true) return;
+
     try {
       await Supabase.instance.client.auth.signOut();
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('✅ Berhasil logout')));
+
+      // bersihkan history biar tidak bisa back ke halaman sebelumnya
+      Navigator.pushNamedAndRemoveUntil(context, '/login', (r) => false);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('❌ Gagal logout: $e')));
+      ).showSnackBar(SnackBar(content: Text('Gagal logout: $e')));
     }
-  }
-
-  void _goToSellerForTesting() {
-    // opsi A (pakai route yang sudah kamu set di main.dart)
-    Navigator.pushNamed(context, '/seller');
-
-    // opsi B (kalau mau dinamis login user):
-    // final uid = Supabase.instance.client.auth.currentUser?.id;
-    // if (uid == null) return;
-    // Navigator.push(context, MaterialPageRoute(builder: (_) => SellerProfilePage(ownerId: uid)));
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_name == null || _avatarUrl == null) {
+      _loadUserProfile();
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Profil'),
@@ -65,8 +150,8 @@ class _ProfilePageState extends State<ProfilePage> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            GestureDetector(
-              onTap: _goToSellerForTesting, // ✅ ini doang untuk testing
+            InkWell(
+              onTap: () => Navigator.pushNamed(context, '/edit_profile'),
               child: Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -91,7 +176,9 @@ class _ProfilePageState extends State<ProfilePage> {
                       ),
                       clipBehavior: Clip.hardEdge,
                       child: Image.network(
-                        'https://i.pravatar.cc/80?img=1',
+                        (_avatarUrl == null || _avatarUrl!.isEmpty)
+                            ? 'https://i.pravatar.cc/80?img=1'
+                            : _avatarUrl!,
                         fit: BoxFit.cover,
                         errorBuilder: (context, error, stack) {
                           return const Center(
@@ -145,7 +232,6 @@ class _ProfilePageState extends State<ProfilePage> {
               onTap: () => Navigator.pushNamed(context, '/orders'),
             ),
             const SizedBox(height: 8),
-
             const _MenuItem(
               icon: CupertinoIcons.heart,
               title: 'Favorit',
@@ -164,7 +250,15 @@ class _ProfilePageState extends State<ProfilePage> {
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
-        onTap: (i) => setState(() => _selectedIndex = i),
+        onTap: (i) {
+          if (i == 0) {
+            Navigator.pushNamed(context, '/home');
+            return;
+          }
+          setState(() {
+            _selectedIndex = i;
+          });
+        },
         type: BottomNavigationBarType.fixed,
         items: const [
           BottomNavigationBarItem(icon: Icon(CupertinoIcons.house), label: ''),
