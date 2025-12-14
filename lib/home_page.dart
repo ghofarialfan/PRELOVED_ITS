@@ -15,6 +15,7 @@ class _HomePageState extends State<HomePage> {
   List<Map<String, dynamic>> _newProducts = [];
   List<Map<String, dynamic>> _forYou = [];
   bool _loading = true;
+  String? _name;
 
   Future<void> _load() async {
     try {
@@ -55,10 +56,41 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _loadUserProfile() async {
+    try {
+      final client = Supabase.instance.client;
+      final user = client.auth.currentUser;
+      if (user == null) return;
+      final resId = await client.from('users').select().eq('id', user.id).limit(1);
+      var list = (resId as List<dynamic>);
+      if (list.isNotEmpty) {
+        final m = list.first as Map<String, dynamic>;
+        final name = (m['full_name'] ?? '').toString();
+        setState(() {
+          _name = name.isNotEmpty ? name : null;
+        });
+      }
+    } catch (_) {}
+  }
+
+  String get _displayName {
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      final meta = user?.userMetadata ?? {};
+      if (_name != null && _name!.isNotEmpty) return _name!;
+      final fullName = (meta['full_name'] ?? meta['name'] ?? '').toString();
+      if (fullName.isNotEmpty) return fullName;
+      final email = user?.email ?? '';
+      if (email.isNotEmpty) return email.split('@').first;
+    } catch (_) {}
+    return 'Pengguna';
+  }
+
   @override
   void initState() {
     super.initState();
     _load();
+    _loadUserProfile();
   }
 
   @override
@@ -75,8 +107,8 @@ class _HomePageState extends State<HomePage> {
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
-                      Text('Selamat Datang, Andra', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.black)),
+                    children: [
+                      Text('Selamat Datang, $_displayName', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.black)),
                     ],
                   ),
                 ),
