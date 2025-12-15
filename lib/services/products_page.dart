@@ -3,7 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/product.dart'; 
-import 'product_detail_page.dart'; // PATH IMPOR UNTUK NAVIGASI
+import '../Product/product_detail_view.dart';
 
 class ProductsPage extends StatefulWidget {
   final String? category;
@@ -49,7 +49,7 @@ class _ProductsPageState extends State<ProductsPage> {
           .from('products')
           .select('''
             *,
-            product_images!inner(image_url, is_featured, index_order)
+            product_images!inner(image_url, is_featured, order_index)
           ''')
           .order('created_at', ascending: false);
 
@@ -61,20 +61,12 @@ class _ProductsPageState extends State<ProductsPage> {
         // Proses Gambar: Mengubah Path Relatif menjadi URL Lengkap
         if (productMap['product_images'] != null) {
           final images = List<Map<String, dynamic>>.from(productMap['product_images']);
-          images.sort((a, b) => (a['index_order'] ?? 0).compareTo(b['index_order'] ?? 0));
-          final featuredImage = images.firstWhere(
-            (img) => img['is_featured'] == true,
-            orElse: () => images.isNotEmpty ? images.first : {},
-          );
-          // imagePath HARUS BERISI PATH RELATIF! (Contoh: products/file.jpg)
-          final imagePath = featuredImage['image_url'] as String?; 
-          
+          images.sort((a, b) => (a['order_index'] ?? 0).compareTo(b['order_index'] ?? 0));
+          final featuredImage = images.isNotEmpty ? images.first : {};
+          final imagePath = featuredImage['image_url'] as String?;
           if (imagePath != null && imagePath.isNotEmpty) {
-            final publicUrl = client.storage
-                .from(_storageBucketName) 
-                .getPublicUrl(imagePath);
-            // Simpan URL LENGKAP ke dalam productMap untuk model
-            productMap['image_url'] = publicUrl; 
+            final publicUrl = client.storage.from(_storageBucketName).getPublicUrl(imagePath);
+            productMap['image_url'] = publicUrl;
           }
         }
         
@@ -258,9 +250,7 @@ class _ProductsPageState extends State<ProductsPage> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => ProductDetailPage(
-              productId: product.id,
-            ),
+            builder: (context) => ProductDetailView(productId: product.id),
           ),
         );
         // Hapus pemuatan produk yang menyebabkan setState() pada disposed widget

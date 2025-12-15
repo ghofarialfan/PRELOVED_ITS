@@ -50,7 +50,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
           .from('products')
           .select('''
             *,
-            product_images(id, image_url, index_order, is_featured)
+            product_images(id, image_url, order_index, is_featured)
           ''')
           .eq('id', widget.productId)
           .single();
@@ -77,7 +77,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       if (response['product_images'] != null) {
         images = List<Map<String, dynamic>>.from(response['product_images']);
         images.sort((a, b) => 
-          (a['index_order'] ?? 0).compareTo(b['index_order'] ?? 0)
+          (a['order_index'] ?? 0).compareTo(b['order_index'] ?? 0)
         );
         
         // MENGUBAH PATH RELATIF (products/file.jpg) MENJADI URL LENGKAP

@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'Product/product_detail_view.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -205,6 +206,17 @@ class _HomePageState extends State<HomePage> {
                   title: (p['name'] ?? p['title'] ?? '').toString(),
                   price: (p['prize'] ?? p['price'] ?? 0) as num,
                   imageUrl: (p['image_url'] ?? 'https://picsum.photos/seed/for$i/240/240').toString(),
+                  onTap: () {
+                    final id = (p['id'] ?? '').toString();
+                    if (id.isNotEmpty) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ProductDetailView(productId: id),
+                        ),
+                      );
+                    }
+                  },
                 );
               },
             ),
@@ -285,6 +297,17 @@ class _ProductList extends StatelessWidget {
             title: (p['name'] ?? p['title'] ?? '').toString(),
             price: (p['prize'] ?? p['price'] ?? 0) as num,
             imageUrl: (p['image_url'] ?? 'https://picsum.photos/seed/p$i/240/160').toString(),
+            onTap: () {
+              final id = (p['id'] ?? '').toString();
+              if (id.isNotEmpty) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ProductDetailView(productId: id),
+                  ),
+                );
+              }
+            },
           );
         },
       ),
@@ -296,42 +319,47 @@ class _ProductCard extends StatelessWidget {
   final String title;
   final num price;
   final String imageUrl;
-  const _ProductCard({required this.title, required this.price, required this.imageUrl});
+  final VoidCallback? onTap;
+  const _ProductCard({required this.title, required this.price, required this.imageUrl, this.onTap});
 
   @override
   Widget build(BuildContext context) {
     const primaryBlue = Color(0xFF2563FF);
     const textSecondary = Color(0xFF8E99AF);
-    return Container(
-      width: 160,
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), boxShadow: [
-        BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 4)),
-      ]),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: const BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12)),
-            child: Image.network(
-              imageUrl,
-              height: 110,
-              width: 160,
-              fit: BoxFit.cover,
-              errorBuilder: (c, e, s) => Container(height: 110, width: 160, color: const Color(0xFFE9F0FF)),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        width: 160,
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 4)),
+        ]),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: const BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12)),
+              child: Image.network(
+                imageUrl,
+                height: 110,
+                width: 160,
+                fit: BoxFit.cover,
+                errorBuilder: (c, e, s) => Container(height: 110, width: 160, color: const Color(0xFFE9F0FF)),
+              ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: textSecondary)),
-                const SizedBox(height: 6),
-                Text('Rp ${price.toStringAsFixed(0)}', style: const TextStyle(color: primaryBlue, fontWeight: FontWeight.w600)),
-              ],
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: textSecondary)),
+                  const SizedBox(height: 6),
+                  Text('Rp ${price.toStringAsFixed(0)}', style: const TextStyle(color: primaryBlue, fontWeight: FontWeight.w600)),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
