@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'Product/product_detail_view.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -15,6 +16,7 @@ class _HomePageState extends State<HomePage> {
   List<Map<String, dynamic>> _newProducts = [];
   List<Map<String, dynamic>> _forYou = [];
   bool _loading = true;
+  String? _name;
 
   Future<void> _load() async {
     try {
@@ -55,10 +57,41 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _loadUserProfile() async {
+    try {
+      final client = Supabase.instance.client;
+      final user = client.auth.currentUser;
+      if (user == null) return;
+      final resId = await client.from('users').select().eq('id', user.id).limit(1);
+      var list = (resId as List<dynamic>);
+      if (list.isNotEmpty) {
+        final m = list.first as Map<String, dynamic>;
+        final name = (m['full_name'] ?? '').toString();
+        setState(() {
+          _name = name.isNotEmpty ? name : null;
+        });
+      }
+    } catch (_) {}
+  }
+
+  String get _displayName {
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      final meta = user?.userMetadata ?? {};
+      if (_name != null && _name!.isNotEmpty) return _name!;
+      final fullName = (meta['full_name'] ?? meta['name'] ?? '').toString();
+      if (fullName.isNotEmpty) return fullName;
+      final email = user?.email ?? '';
+      if (email.isNotEmpty) return email.split('@').first;
+    } catch (_) {}
+    return 'Pengguna';
+  }
+
   @override
   void initState() {
     super.initState();
     _load();
+    _loadUserProfile();
   }
 
   @override
@@ -75,8 +108,8 @@ class _HomePageState extends State<HomePage> {
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
-                      Text('Selamat Datang, Andra', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.black)),
+                    children: [
+                      Text('Selamat Datang, $_displayName', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.black)),
                     ],
                   ),
                 ),
@@ -173,6 +206,17 @@ class _HomePageState extends State<HomePage> {
                   title: (p['name'] ?? p['title'] ?? '').toString(),
                   price: (p['prize'] ?? p['price'] ?? 0) as num,
                   imageUrl: (p['image_url'] ?? 'https://picsum.photos/seed/for$i/240/240').toString(),
+                  onTap: () {
+                    final id = (p['id'] ?? '').toString();
+                    if (id.isNotEmpty) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ProductDetailView(productId: id),
+                        ),
+                      );
+                    }
+                  },
                 );
               },
             ),
@@ -253,6 +297,17 @@ class _ProductList extends StatelessWidget {
             title: (p['name'] ?? p['title'] ?? '').toString(),
             price: (p['prize'] ?? p['price'] ?? 0) as num,
             imageUrl: (p['image_url'] ?? 'https://picsum.photos/seed/p$i/240/160').toString(),
+            onTap: () {
+              final id = (p['id'] ?? '').toString();
+              if (id.isNotEmpty) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ProductDetailView(productId: id),
+                  ),
+                );
+              }
+            },
           );
         },
       ),
@@ -264,42 +319,47 @@ class _ProductCard extends StatelessWidget {
   final String title;
   final num price;
   final String imageUrl;
-  const _ProductCard({required this.title, required this.price, required this.imageUrl});
+  final VoidCallback? onTap;
+  const _ProductCard({required this.title, required this.price, required this.imageUrl, this.onTap});
 
   @override
   Widget build(BuildContext context) {
     const primaryBlue = Color(0xFF2563FF);
     const textSecondary = Color(0xFF8E99AF);
-    return Container(
-      width: 160,
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), boxShadow: [
-        BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 4)),
-      ]),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: const BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12)),
-            child: Image.network(
-              imageUrl,
-              height: 110,
-              width: 160,
-              fit: BoxFit.cover,
-              errorBuilder: (c, e, s) => Container(height: 110, width: 160, color: const Color(0xFFE9F0FF)),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        width: 160,
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 4)),
+        ]),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: const BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12)),
+              child: Image.network(
+                imageUrl,
+                height: 110,
+                width: 160,
+                fit: BoxFit.cover,
+                errorBuilder: (c, e, s) => Container(height: 110, width: 160, color: const Color(0xFFE9F0FF)),
+              ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: textSecondary)),
-                const SizedBox(height: 6),
-                Text('Rp ${price.toStringAsFixed(0)}', style: const TextStyle(color: primaryBlue, fontWeight: FontWeight.w600)),
-              ],
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: textSecondary)),
+                  const SizedBox(height: 6),
+                  Text('Rp ${price.toStringAsFixed(0)}', style: const TextStyle(color: primaryBlue, fontWeight: FontWeight.w600)),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

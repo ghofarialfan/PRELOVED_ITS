@@ -2,7 +2,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:crop_your_image/crop_your_image.dart';
 
 class EditPhotoPage extends StatefulWidget {
   const EditPhotoPage({super.key});
@@ -16,6 +18,9 @@ class _EditPhotoPageState extends State<EditPhotoPage> {
   Uint8List? _pickedBytes;
   String? _pickedMime;
   bool _loading = true;
+  Uint8List? _croppedBytes;
+  final CropController _cropController = CropController();
+  Completer<Uint8List>? _pendingCropCompleter;
 
   Future<void> _load() async {
     try {
@@ -44,6 +49,7 @@ class _EditPhotoPageState extends State<EditPhotoPage> {
       _pickedBytes = bytes;
       _pickedMime = 'image/jpeg';
       _avatarUrl = null;
+      _croppedBytes = null;
     });
   }
 
@@ -55,16 +61,44 @@ class _EditPhotoPageState extends State<EditPhotoPage> {
       String? finalUrl = _avatarUrl;
 
       if (_pickedBytes != null) {
-        final path = 'avatars/${user.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-        await client.storage.from('avatars').uploadBinary(path, _pickedBytes!, fileOptions: FileOptions(contentType: _pickedMime ?? 'image/jpeg', upsert: true));
-        finalUrl = client.storage.from('avatars').getPublicUrl(path);
+        _pendingCropCompleter = Completer<Uint8List>();
+        _cropController.crop();
+        final cropped = await _pendingCropCompleter!.future;
+        _croppedBytes = cropped;
+        final path = 'profile_photos/${user.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+        await client.storage
+            .from('photo_url_pp')
+            .uploadBinary(
+              path,
+              _croppedBytes ?? _pickedBytes!,
+              fileOptions: FileOptions(
+                contentType: _croppedBytes != null ? 'image/png' : (_pickedMime ?? 'image/jpeg'),
+                upsert: true,
+              ),
+            );
+        finalUrl = client.storage.from('photo_url_pp').getPublicUrl(path);
       }
 
       if (finalUrl != null && finalUrl.isNotEmpty) {
         final username = (user.email ?? '').split('@').first;
+        final existing = await client
+            .from('users')
+            .select('full_name')
+            .eq('id', user.id)
+            .maybeSingle();
+        final existingName = (existing?['full_name'] ?? '').toString();
+        final meta = user.userMetadata ?? {};
+        final candidateName = existingName.isNotEmpty
+            ? existingName
+            : (meta['full_name'] ??
+                    meta['name'] ??
+                    user.email?.split('@').first ??
+                    '')
+                .toString();
         await client.from('users').upsert({
           'id': user.id,
           'photo_url': finalUrl,
+          'full_name': candidateName.isNotEmpty ? candidateName : username,
           if ((user.email ?? '').isNotEmpty) 'email': user.email,
           'username': username.isNotEmpty ? username : null,
         }, onConflict: 'id');
@@ -87,8 +121,8 @@ class _EditPhotoPageState extends State<EditPhotoPage> {
 
   @override
   Widget build(BuildContext context) {
-    const primaryBlue = Color(0xFF2563FF);
-    const blueSoft = Color(0xFFE9F0FF);
+    const iosBlue = Color(0xFF007AFF);
+    const greySoft = Color(0xFFF2F2F7);
     ImageProvider? avatar;
     if (_pickedBytes != null) {
       avatar = MemoryImage(_pickedBytes!);
@@ -98,8 +132,6 @@ class _EditPhotoPageState extends State<EditPhotoPage> {
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(icon: const Icon(CupertinoIcons.back), onPressed: () => Navigator.pop(context)),
-        title: const Text('Edit Foto'),
-        centerTitle: true,
         elevation: 0,
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
@@ -110,20 +142,62 @@ class _EditPhotoPageState extends State<EditPhotoPage> {
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                const Text('Pilih Foto Kamu', style: TextStyle(color: Colors.black54)),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(100), boxShadow: [
-                    BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 12, offset: const Offset(0, 6)),
-                  ]),
-                  child: CircleAvatar(radius: 84, backgroundColor: blueSoft, backgroundImage: avatar),
+                const Text('Edit Foto', style: TextStyle(color: Colors.black, fontSize: 24, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 4),
+                const Text('Pilih Foto Kamu', style: TextStyle(color: Colors.black54, fontSize: 14)),
+                const SizedBox(height: 16),
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Color(0xFFE5E5EA), width: 2),
+                      ),
+                      child: SizedBox(
+                        width: 168,
+                        height: 168,
+                        child: (_pickedBytes != null)
+                            ? Crop(
+                                image: _pickedBytes!,
+                                controller: _cropController,
+                                onCropped: (result) {
+                                  try {
+                                    final r = result as dynamic;
+                                    final bytes = r.croppedImage as Uint8List?;
+                                    if (bytes != null) {
+                                      _pendingCropCompleter?.complete(bytes);
+                                      setState(() => _croppedBytes = bytes);
+                                    } else {
+                                      _pendingCropCompleter?.completeError(r.error ?? 'Crop failed');
+                                    }
+                                  } catch (e) {
+                                    _pendingCropCompleter?.completeError(e);
+                                  }
+                                },
+                                withCircleUi: true,
+                                interactive: true,
+                                initialRectBuilder: InitialRectBuilder.withSizeAndRatio(
+                                  size: 1,
+                                  aspectRatio: 1,
+                                ),
+                                baseColor: Colors.transparent,
+                                maskColor: Colors.white.withAlpha(90),
+                                radius: 168,
+                                progressIndicator: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                              )
+                            : CircleAvatar(radius: 84, backgroundColor: greySoft, backgroundImage: avatar),
+                      ),
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 16),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: blueSoft,
-                    foregroundColor: primaryBlue,
+                    backgroundColor: greySoft,
+                    foregroundColor: Colors.black87,
+                    elevation: 0,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     padding: const EdgeInsets.symmetric(vertical: 14),
                   ),
@@ -133,7 +207,7 @@ class _EditPhotoPageState extends State<EditPhotoPage> {
                 const SizedBox(height: 10),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: primaryBlue,
+                    backgroundColor: iosBlue,
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     padding: const EdgeInsets.symmetric(vertical: 14),
