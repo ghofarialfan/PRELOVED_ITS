@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'nego_page.dart';
+import 'chat_page.dart';
+import 'chat_list_page.dart';
 
 void main() {
   runApp(const MyApp());
@@ -109,6 +112,21 @@ class _MyHomePageState extends State<MyHomePage> {
               '$_counter',
               style: Theme.of(context).textTheme.headlineMedium,
             ),
+          const SizedBox(height: 20),
+
+          ElevatedButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                  MaterialPageRoute(builder: (_) => NegoPage(
+                    productId: "P001", 
+                    productName: "Sepatu Nike Air", 
+                    productPrice: 450000,
+                    productImage: "https://i.imgur.com/BoN9kdC.png",)),
+      );
+    },
+    child: const Text("Buka Halaman Nego"),
+  ),
           ],
         ),
       ),
