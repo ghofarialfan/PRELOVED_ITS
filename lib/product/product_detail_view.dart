@@ -4,14 +4,14 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class ProductDetailView extends StatefulWidget {
   final String productId;
 
-  const ProductDetailView({Key? key, required this.productId}) : super(key: key);
+  const ProductDetailView({super.key, required this.productId});
 
   @override
   State<ProductDetailView> createState() => _ProductDetailViewState();
 }
 
 class _ProductDetailViewState extends State<ProductDetailView> {
-  static const String _storageBucketName = 'photo_url_pp';
+  static const String _storageBucketName = 'products';
 
   bool _loading = true;
   Map<String, dynamic>? _product;
@@ -28,7 +28,12 @@ class _ProductDetailViewState extends State<ProductDetailView> {
 
   String _getPublicImageUrl(String path) {
     if (path.startsWith('http')) return path;
-    return Supabase.instance.client.storage.from(_storageBucketName).getPublicUrl(path);
+    var normalized = path.trim();
+    normalized = normalized.replaceFirst(RegExp(r'^/+'), '');
+    if (!normalized.contains('/')) {
+      normalized = 'products/$normalized';
+    }
+    return Supabase.instance.client.storage.from(_storageBucketName).getPublicUrl(normalized);
   }
 
   Future<void> _loadProduct() async {
@@ -36,7 +41,7 @@ class _ProductDetailViewState extends State<ProductDetailView> {
       final client = Supabase.instance.client;
       final response = await client
           .from('products')
-          .select('*, product_images(id, image_url, order_index, is_featured)')
+          .select('*, product_images!product_images_product_id_fkey(id, image_url, order_index)')
           .eq('id', widget.productId)
           .single();
 
@@ -61,6 +66,14 @@ class _ProductDetailViewState extends State<ProductDetailView> {
           m['image_url'] = _getPublicImageUrl(m['image_url'] as String);
           return m;
         }).toList();
+        final coverId = (response['product_image_id'] ?? '').toString();
+        if (coverId.isNotEmpty) {
+          final idx = images.indexWhere((m) => (m['id'] ?? '').toString() == coverId);
+          if (idx > 0) {
+            final cover = images.removeAt(idx);
+            images.insert(0, cover);
+          }
+        }
       }
 
       setState(() {
@@ -108,33 +121,35 @@ class _ProductDetailViewState extends State<ProductDetailView> {
   }
 
   Future<void> _toggleFavorite() async {
+    final messenger = ScaffoldMessenger.of(context);
     try {
       final client = Supabase.instance.client;
       final user = client.auth.currentUser;
       if (user == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Silakan login terlebih dahulu')));
+        messenger.showSnackBar(const SnackBar(content: Text('Silakan login terlebih dahulu')));
         return;
       }
       if (_isFavorite) {
         await client.from('favorites').delete().eq('user_id', user.id).eq('product_id', widget.productId);
         setState(() => _isFavorite = false);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Dihapus dari favorit')));
+        messenger.showSnackBar(const SnackBar(content: Text('Dihapus dari favorit')));
       } else {
         await client.from('favorites').insert({'user_id': user.id, 'product_id': widget.productId});
         setState(() => _isFavorite = true);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ditambahkan ke favorit')));
+        messenger.showSnackBar(const SnackBar(content: Text('Ditambahkan ke favorit')));
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      messenger.showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
   Future<void> _addToCart() async {
+    final messenger = ScaffoldMessenger.of(context);
     try {
       final client = Supabase.instance.client;
       final user = client.auth.currentUser;
       if (user == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Silakan login terlebih dahulu')));
+        messenger.showSnackBar(const SnackBar(content: Text('Silakan login terlebih dahulu')));
         return;
       }
       final existing = await client
@@ -156,11 +171,9 @@ class _ProductDetailViewState extends State<ProductDetailView> {
           'selected_size': _selectedSize,
         });
       }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Produk ditambahkan ke keranjang'), backgroundColor: Colors.green));
-      }
+      messenger.showSnackBar(const SnackBar(content: Text('Produk ditambahkan ke keranjang'), backgroundColor: Colors.green));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      messenger.showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
@@ -263,11 +276,12 @@ class _ProductDetailViewState extends State<ProductDetailView> {
   }
 
   Future<void> _submitOffer(int offeredPrice) async {
+    final messenger = ScaffoldMessenger.of(context);
     try {
       final client = Supabase.instance.client;
       final user = client.auth.currentUser;
       if (user == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Silakan login terlebih dahulu')));
+        messenger.showSnackBar(const SnackBar(content: Text('Silakan login terlebih dahulu')));
         return;
       }
       final chatId = await _createOrGetChat();
@@ -295,9 +309,9 @@ class _ProductDetailViewState extends State<ProductDetailView> {
           'offer_id': offer['id'],
         });
       }
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nego terkirim')));
+      messenger.showSnackBar(const SnackBar(content: Text('Nego terkirim')));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      messenger.showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
@@ -362,7 +376,7 @@ class _ProductDetailViewState extends State<ProductDetailView> {
                                     height: 8,
                                     decoration: BoxDecoration(
                                       shape: BoxShape.circle,
-                                      color: _currentImageIndex == index ? Colors.blue : Colors.white.withOpacity(0.5),
+                                      color: _currentImageIndex == index ? Colors.blue : Colors.white.withValues(alpha: 0.5),
                                     ),
                                   ),
                                 ),
@@ -384,13 +398,13 @@ class _ProductDetailViewState extends State<ProductDetailView> {
                     children: [
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), borderRadius: BorderRadius.circular(20)),
+                        decoration: BoxDecoration(color: Colors.blue.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
                         child: Text((_product!['category'] ?? '').toString(), style: TextStyle(fontSize: 12, color: Colors.blue[700], fontWeight: FontWeight.w600)),
                       ),
                       const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(color: _product!['condition'] == 'new' ? Colors.green.withOpacity(0.1) : Colors.orange.withOpacity(0.1), borderRadius: BorderRadius.circular(20)),
+                        decoration: BoxDecoration(color: _product!['condition'] == 'new' ? Colors.green.withValues(alpha: 0.1) : Colors.orange.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
                         child: Text(_product!['condition'] == 'new' ? 'Baru' : 'Bekas', style: TextStyle(fontSize: 12, color: _product!['condition'] == 'new' ? Colors.green[700] : Colors.orange[700], fontWeight: FontWeight.w600)),
                       ),
                     ],
@@ -420,7 +434,7 @@ class _ProductDetailViewState extends State<ProductDetailView> {
                   const SizedBox(height: 20),
                   Container(
                     padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.blue.withOpacity(0.1), Colors.blue.withOpacity(0.05)]), borderRadius: BorderRadius.circular(12)),
+                    decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.blue.withValues(alpha: 0.1), Colors.blue.withValues(alpha: 0.05)]), borderRadius: BorderRadius.circular(12)),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       if (hasDiscount) ...[
                         Row(children: [
@@ -441,7 +455,7 @@ class _ProductDetailViewState extends State<ProductDetailView> {
                   if (_product!['size'] != null && _product!['size'].toString().isNotEmpty) ...[
                     const Text('Ukuran', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 12),
-                    Container(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12), decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), border: Border.all(color: Colors.blue, width: 1), borderRadius: BorderRadius.circular(8)), child: Text(_product!['size'].toString(), style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.w600, fontSize: 14))),
+                    Container(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12), decoration: BoxDecoration(color: Colors.blue.withValues(alpha: 0.1), border: Border.all(color: Colors.blue, width: 1), borderRadius: BorderRadius.circular(8)), child: Text(_product!['size'].toString(), style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.w600, fontSize: 14))),
                     const SizedBox(height: 24),
                   ],
                   const Text('Deskripsi Produk', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
@@ -456,7 +470,7 @@ class _ProductDetailViewState extends State<ProductDetailView> {
       ),
       bottomNavigationBar: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.3), spreadRadius: 1, blurRadius: 10, offset: const Offset(0, -3))]),
+        decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.grey.withValues(alpha: 0.3), spreadRadius: 1, blurRadius: 10, offset: const Offset(0, -3))]),
         child: SafeArea(
           child: Row(children: [
             Expanded(
