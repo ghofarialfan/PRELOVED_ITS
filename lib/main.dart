@@ -1,77 +1,93 @@
 import 'package:flutter/material.dart';
+<<<<<<< HEAD
 import 'nego_page.dart';
 import 'chat_page.dart';
 import 'chat_list_page.dart';
+=======
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-void main() {
+import 'home_page.dart';
+import 'profile_page.dart';
+import 'orders_page.dart';
+import 'edit_profile_page.dart';
+import 'edit_photo_page.dart';
+import 'favorites_page.dart';
+
+import 'auth/login_email_page.dart';
+import 'auth/register_page.dart';
+import 'auth/reset_request_page.dart';
+import 'auth/reset_new_password_page.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // PAKAI DEV CONFIG LANGSUNG (biar tidak 401 Invalid API key)
+  const supabaseUrl = 'https://qasmoyqdipdwngghboob.supabase.co';
+  const supabaseAnonKey =
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFhc21veXFkaXBkd25nZ2hib29iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQzMzE4MjMsImV4cCI6MjA3OTkwNzgyM30.r-G27SvnEleAB03l9cGr64nuuCurvAcpX4aR9SjWGzY';
+
+  await Supabase.initialize(
+    url: supabaseUrl,
+    anonKey: supabaseAnonKey,
+  );
+>>>>>>> 2155c4aafe98a8784ebfbb64c0382fb8edb2ae3a
+
   runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      debugShowCheckedModeBanner: false,
+      title: 'Preloved ITS',
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+        useMaterial3: true,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+
+      // AUTO ROUTING: sudah login → Home, belum → Login (kecuali recovery)
+      home: const AuthGate(),
+
+      routes: {
+        '/home': (context) => const HomePage(),
+        '/profile': (context) => const ProfilePage(),
+        '/orders': (context) => const OrdersPage(),
+        '/edit_profile': (context) => const EditProfilePage(),
+        '/edit_photo': (context) => const EditPhotoPage(),
+        '/favorites': (context) => const FavoritesPage(),
+
+        // auth routes
+        '/login': (context) => const LoginEmailPage(),
+        '/register': (context) => const RegisterPage(),
+        '/reset': (context) => const ResetRequestPage(),
+        '/reset-new': (context) => const ResetNewPasswordPage(),
+      },
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
 
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
+  Future<void> _consumeRecoveryCodeIfAny() async {
+    // 🔥 Ini penting untuk URL model:
+    // http://localhost:32929/?code=XXXX#/reset-new
+    final code = Uri.base.queryParameters['code'];
+    if (code == null || code.isEmpty) return;
 
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
-
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
-
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+    try {
+      await Supabase.instance.client.auth.exchangeCodeForSession(code);
+    } catch (_) {
+      // kalau gagal, biarkan page reset kasih pesan yang jelas
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+<<<<<<< HEAD
     // This method is rerun every time setState is called, for instance as done
     // by the _incrementCounter method above.
     //
@@ -135,6 +151,27 @@ class _MyHomePageState extends State<MyHomePage> {
         tooltip: 'Increment',
         child: const Icon(Icons.add),
       ), // This trailing comma makes auto-formatting nicer for build methods.
+=======
+    return FutureBuilder<void>(
+      future: _consumeRecoveryCodeIfAny(),
+      builder: (context, snap) {
+        return StreamBuilder<AuthState>(
+          stream: Supabase.instance.client.auth.onAuthStateChange,
+          builder: (context, snapshot) {
+            final event = snapshot.data?.event;
+
+            // ✅ kalau user datang dari link reset password
+            if (event == AuthChangeEvent.passwordRecovery) {
+              return const ResetNewPasswordPage();
+            }
+
+            final session = Supabase.instance.client.auth.currentSession;
+            if (session != null) return const HomePage();
+            return const LoginEmailPage();
+          },
+        );
+      },
+>>>>>>> 2155c4aafe98a8784ebfbb64c0382fb8edb2ae3a
     );
   }
 }

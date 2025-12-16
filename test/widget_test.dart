@@ -6,25 +6,30 @@
 // tree, read text, and verify that the values of widget properties are correct.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:preloved_its/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
+  setUpAll(() {
+    FlutterError.onError = (FlutterErrorDetails details) {
+      final msg = details.exception.toString();
+      if (msg.contains('HTTP') || msg.contains('NetworkImage') || msg.contains('ImageCodecException')) {
+        return;
+      }
+      FlutterError.presentError(details);
+    };
+  });
+  testWidgets('Profile page renders', (WidgetTester tester) async {
     await tester.pumpWidget(const MyApp());
-
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(find.byType(BottomNavigationBar), findsOneWidget);
+    await tester.tap(find.byIcon(CupertinoIcons.person));
+    await tester.pumpAndSettle();
+    expect(find.text('Profil'), findsOneWidget);
+    await tester.tap(find.byIcon(CupertinoIcons.house));
+    await tester.pumpAndSettle();
+    expect(find.text('Selamat Datang, Andra'), findsOneWidget);
   });
 }
