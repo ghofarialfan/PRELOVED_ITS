@@ -41,13 +41,18 @@ class _ProductDetailViewState extends State<ProductDetailView> {
       final client = Supabase.instance.client;
       final response = await client
           .from('products')
-          .select('*, product_images!product_images_product_id_fkey(id, image_url, order_index)')
+          .select('*')
           .eq('id', widget.productId)
           .single();
 
       final reviews = await client
           .from('product_reviews')
           .select('rating')
+          .eq('product_id', widget.productId);
+      
+      final imagesResponse = await client
+          .from('product_images')
+          .select('id, image_url, order_index')
           .eq('product_id', widget.productId);
 
       double avg = 0.0;
@@ -59,8 +64,8 @@ class _ProductDetailViewState extends State<ProductDetailView> {
       }
 
       List<Map<String, dynamic>> images = [];
-      if (response['product_images'] != null) {
-        images = List<Map<String, dynamic>>.from(response['product_images']);
+      if (imagesResponse.isNotEmpty) {
+        images = List<Map<String, dynamic>>.from(imagesResponse);
         images.sort((a, b) => (a['order_index'] ?? 0).compareTo(b['order_index'] ?? 0));
         images = images.map((m) {
           m['image_url'] = _getPublicImageUrl(m['image_url'] as String);
