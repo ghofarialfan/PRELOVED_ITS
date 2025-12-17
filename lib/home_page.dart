@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'product/product_detail_view.dart';
+import 'services/products_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -18,6 +19,127 @@ class _HomePageState extends State<HomePage> {
   bool _loading = true;
   String? _name;
 
+  String? _selectedCategory;
+  List<Map<String, dynamic>> _filteredProducts = [];
+  bool _loadingFiltered = false;
+  final TextEditingController _searchController = TextEditingController();
+  bool _isSearching = false;
+  bool _isFeaturedExpanded = false;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<List<Map<String, dynamic>>> _withPublicImageAsync(List<dynamic> rows) async {
+    final client = Supabase.instance.client;
+    final maps = rows.map((e) => Map<String, dynamic>.from(e as Map<String, dynamic>)).toList();
+    final ids = maps.map((m) => (m['id'] ?? '').toString()).where((id) => id.isNotEmpty).toList();
+    if (ids.isEmpty) return maps;
+    try {
+      final grouped = <String, String>{};
+      final coverIdByProduct = <String, String>{};
+      for (final m in maps) {
+        final pid = (m['id'] ?? '').toString();
+        final cid = (m['product_image_id'] ?? '').toString();
+        if (pid.isNotEmpty && cid.isNotEmpty) coverIdByProduct[pid] = cid;
+      }
+      if (coverIdByProduct.isNotEmpty) {
+        final coverIds = coverIdByProduct.values.toList();
+        final coverRows = await client
+            .from('product_images')
+            .select('id, image_url')
+            .filter('id', 'in', '(${coverIds.map((e) => '"$e"').join(",")})');
+        final byId = <String, String>{};
+        for (final row in (coverRows as List<dynamic>)) {
+          final id = (row as Map)['id'].toString();
+          final path = (row['image_url'] ?? '').toString();
+          if (id.isNotEmpty && path.isNotEmpty) byId[id] = path;
+        }
+        coverIdByProduct.forEach((pid, cid) {
+          final path = byId[cid];
+          if (path != null && path.isNotEmpty) grouped[pid] = path;
+        });
+      }
+      final missing = ids.where((pid) => !grouped.containsKey(pid));
+      for (final pid in missing) {
+        final img = await client
+            .from('product_images')
+            .select('image_url, order_index')
+            .eq('product_id', pid)
+            .order('order_index', ascending: true)
+            .limit(1)
+            .maybeSingle();
+        final path = (img?['image_url'] ?? '').toString();
+        if (path.isNotEmpty) grouped[pid] = path;
+      }
+      for (final m in maps) {
+        final pid = (m['id'] ?? '').toString();
+        var path = grouped[pid] ?? '';
+        if (path.isNotEmpty) {
+          if (path.startsWith('http')) {
+            m['image_url'] = path;
+          } else {
+            var normalized = path.trim();
+            normalized = normalized.replaceFirst(RegExp(r'^/+'), '');
+            if (!normalized.contains('/')) {
+              normalized = 'products/$normalized';
+            }
+            m['image_url'] = client.storage.from('products').getPublicUrl(normalized);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Attach images error: $e');
+    }
+    return maps;
+  }
+
+  IconData _getCategoryIcon(String name) {
+    final lower = name.toLowerCase().trim();
+    if (lower.contains('elektronik') || lower.contains('gadget') || lower.contains('hp')) {
+      return CupertinoIcons.device_phone_portrait;
+    }
+    if (lower.contains('fashion pria') || lower.contains('pakaian pria') || lower.contains('baju pria')) {
+      return Icons.man;
+    }
+    if (lower.contains('fashion wanita') || lower.contains('pakaian wanita') || lower.contains('baju wanita')) {
+      return Icons.woman;
+    }
+    if (lower.contains('pakaian') || lower.contains('baju') || lower.contains('fashion') || lower.contains('kaos') || lower.contains('kemeja')) {
+      return CupertinoIcons.tag;
+    }
+    if (lower.contains('buku') || lower.contains('literasi')) {
+      return CupertinoIcons.book;
+    }
+    if (lower.contains('aksesoris')) {
+      return CupertinoIcons.eyeglasses;
+    }
+    if (lower.contains('jam')) {
+      return CupertinoIcons.clock;
+    }
+    if (lower.contains('sepatu') || lower.contains('sandal')) {
+      return Icons.do_not_step; // Ikon sepatu
+    }
+    if (lower.contains('tas') || lower.contains('dompet')) {
+      return CupertinoIcons.bag;
+    }
+    if (lower.contains('makanan') || lower.contains('minuman')) {
+      return CupertinoIcons.cart;
+    }
+    if (lower.contains('rumah') || lower.contains('furniture') || lower.contains('mebel')) {
+      return CupertinoIcons.house;
+    }
+    if (lower.contains('kesehatan') || lower.contains('kecantikan')) {
+      return CupertinoIcons.heart;
+    }
+    if (lower.contains('olahraga')) {
+      return CupertinoIcons.sportscourt;
+    }
+    return CupertinoIcons.square_grid_2x2;
+  }
+
   Future<void> _load() async {
     try {
       final client = Supabase.instance.client;
@@ -27,15 +149,32 @@ class _HomePageState extends State<HomePage> {
       List<dynamic> forYouRows = const [];
 
       try {
-        final cats = await client.from('categories').select().limit(12);
-        catsList = (cats as List<dynamic>).cast<Map<String, dynamic>>();
-      } catch (_) {}
+        // Ambil kategori dari tabel products agar sesuai dengan data yang ada
+        final productCats = await client.from('products').select('category');
+        final uniqueCategories = <String>{};
+        final catsListBuilder = <Map<String, dynamic>>[];
+        
+        for (final item in productCats) {
+            final catName = (item['category'] ?? '').toString();
+            // Filter kategori kosong atau null
+            if (catName.isNotEmpty && catName != 'null' && !uniqueCategories.contains(catName)) {
+                uniqueCategories.add(catName);
+                catsListBuilder.add({'name': catName});
+            }
+        }
+        // Urutkan kategori secara alfabetis
+        catsListBuilder.sort((a, b) => (a['name'] as String).compareTo(b['name'] as String));
+        
+        catsList = catsListBuilder;
+      } catch (e) {
+        debugPrint('Error fetching categories from products: $e');
+      }
 
       try {
         featuredRows = await client
             .from('products')
             .select('*')
-            .limit(6);
+            .limit(20);
       } catch (e) {
         debugPrint('Load featured error: $e');
       }
@@ -59,66 +198,7 @@ class _HomePageState extends State<HomePage> {
       }
 
       Future<List<Map<String, dynamic>>> withPublicImageAsync(List<dynamic> rows) async {
-        final maps = rows.map((e) => Map<String, dynamic>.from(e as Map<String, dynamic>)).toList();
-        final ids = maps.map((m) => (m['id'] ?? '').toString()).where((id) => id.isNotEmpty).toList();
-        if (ids.isEmpty) return maps;
-        try {
-          final grouped = <String, String>{};
-          final coverIdByProduct = <String, String>{};
-          for (final m in maps) {
-            final pid = (m['id'] ?? '').toString();
-            final cid = (m['product_image_id'] ?? '').toString();
-            if (pid.isNotEmpty && cid.isNotEmpty) coverIdByProduct[pid] = cid;
-          }
-          if (coverIdByProduct.isNotEmpty) {
-           final coverIds = coverIdByProduct.values.toList();
-           final coverRows = await client
-               .from('product_images')
-               .select('id, image_url')
-                .filter('id', 'in', '(${coverIds.map((e) => '"$e"').join(",")})');
-            final byId = <String, String>{};
-            for (final row in (coverRows as List<dynamic>)) {
-              final id = (row as Map)['id'].toString();
-              final path = (row['image_url'] ?? '').toString();
-              if (id.isNotEmpty && path.isNotEmpty) byId[id] = path;
-            }
-            coverIdByProduct.forEach((pid, cid) {
-              final path = byId[cid];
-              if (path != null && path.isNotEmpty) grouped[pid] = path;
-            });
-          }
-          final missing = ids.where((pid) => !grouped.containsKey(pid));
-          for (final pid in missing) {
-            final img = await client
-                .from('product_images')
-                .select('image_url, order_index')
-                .eq('product_id', pid)
-                .order('order_index', ascending: true)
-                .limit(1)
-                .maybeSingle();
-            final path = (img?['image_url'] ?? '').toString();
-            if (path.isNotEmpty) grouped[pid] = path;
-          }
-          for (final m in maps) {
-            final pid = (m['id'] ?? '').toString();
-            var path = grouped[pid] ?? '';
-            if (path.isNotEmpty) {
-              if (path.startsWith('http')) {
-                m['image_url'] = path;
-              } else {
-                var normalized = path.trim();
-                normalized = normalized.replaceFirst(RegExp(r'^/+'), '');
-                if (!normalized.contains('/')) {
-                  normalized = 'products/$normalized';
-                }
-                m['image_url'] = client.storage.from('products').getPublicUrl(normalized);
-              }
-            }
-          }
-        } catch (e) {
-          debugPrint('Attach images error: $e');
-        }
-        return maps;
+        return _withPublicImageAsync(rows);
       }
 
       final featuredMapped = await withPublicImageAsync(featuredRows);
@@ -145,6 +225,93 @@ class _HomePageState extends State<HomePage> {
         _forYou = [];
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _onCategoryTap(String category) async {
+    _searchController.clear();
+    setState(() {
+      _isSearching = false;
+    });
+
+    if (_selectedCategory == category) {
+      setState(() {
+        _selectedCategory = null;
+        _filteredProducts = [];
+      });
+      return;
+    }
+
+    setState(() {
+      _selectedCategory = category;
+      _loadingFiltered = true;
+    });
+
+    try {
+      final client = Supabase.instance.client;
+      final res = await client
+          .from('products')
+          .select('*')
+          .eq('category', category);
+
+      final mapped = await _withPublicImageAsync(res as List<dynamic>);
+
+      if (mounted) {
+        setState(() {
+          _filteredProducts = mapped;
+          _loadingFiltered = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading category products: $e');
+      if (mounted) {
+        setState(() {
+          _filteredProducts = [];
+          _loadingFiltered = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _onSearch(String query) async {
+    if (query.trim().isEmpty) {
+      setState(() {
+        _isSearching = false;
+        _filteredProducts = [];
+        _selectedCategory = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _isSearching = true;
+      _selectedCategory = null;
+      _loadingFiltered = true;
+    });
+
+    try {
+      final client = Supabase.instance.client;
+      final res = await client
+          .from('products')
+          .select('*')
+          .ilike('name', '%$query%');
+
+      final mapped = await _withPublicImageAsync(res as List<dynamic>);
+
+      if (mounted) {
+        setState(() {
+          _filteredProducts = mapped;
+          _loadingFiltered = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error searching products: $e');
+      if (mounted) {
+        setState(() {
+          _filteredProducts = [];
+          _loadingFiltered = false;
+        });
+      }
     }
   }
 
@@ -188,11 +355,15 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     const primaryBlue = Color(0xFF2563FF);
+    // Updated colors to match the image style
+    const textDark = Color(0xFF1F2937); 
+    const textGrey = Color(0xFF6B7280); 
+    
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16), // Increased padding
           children: [
             Row(
               children: [
@@ -200,47 +371,92 @@ class _HomePageState extends State<HomePage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Selamat Datang, $_displayName', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.black)),
+                      Text('Selamat Datang, $_displayName', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)),
                     ],
                   ),
                 ),
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(borderRadius: BorderRadius.circular(18), border: Border.all(color: primaryBlue, width: 2)),
-                  child: const Icon(CupertinoIcons.camera, color: primaryBlue, size: 18),
-                ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 16),
             TextField(
+              controller: _searchController,
+              onSubmitted: _onSearch,
+              textInputAction: TextInputAction.search,
               decoration: InputDecoration(
                 hintText: 'Cari',
+                hintStyle: const TextStyle(color: textGrey),
                 prefixIcon: const Icon(CupertinoIcons.search, color: primaryBlue),
-                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: primaryBlue)),
+                contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE5E7EB))),
                 focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: primaryBlue, width: 2)),
+                filled: true,
+                fillColor: const Color(0xFFF9FAFB),
               ),
             ),
-            const SizedBox(height: 12),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.network(
-                'https://picsum.photos/seed/banner/800/300',
-                height: 160,
-                width: double.infinity,
-                fit: BoxFit.cover,
-                errorBuilder: (c, e, s) => Container(height: 160, color: const Color(0xFFE9F0FF)),
-              ),
-            ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
             if (_loading)
               const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()))
+            else if (_isSearching) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Hasil Pencarian "${_searchController.text}"', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (_loadingFiltered)
+                 const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()))
+              else if (_filteredProducts.isEmpty)
+                 const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Center(child: Text('Tidak ada produk ditemukan', style: TextStyle(color: Color(0xFF8E99AF)))),
+                 )
+              else
+                 GridView.builder(
+                    physics: const NeverScrollableScrollPhysics(),
+                    shrinkWrap: true,
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                       crossAxisCount: 2, 
+                       childAspectRatio: 0.72, 
+                       mainAxisSpacing: 10, 
+                       crossAxisSpacing: 10
+                    ),
+                    itemCount: _filteredProducts.length,
+                    itemBuilder: (context, i) {
+                       final p = _filteredProducts[i];
+                       return _ProductCard(
+                          title: (p['name'] ?? p['title'] ?? '').toString(),
+                          price: (p['prize'] ?? p['price'] ?? 0) as num,
+                          imageUrl: (p['image_url'] ?? '').toString(),
+                          onTap: () {
+                            final id = (p['id'] ?? '').toString();
+                            if (id.isNotEmpty) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => ProductDetailView(productId: id),
+                                ),
+                              );
+                            }
+                          },
+                       );
+                    },
+                 ),
+            ]
             else ...[
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: const [
-                Text('Kategori', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                Text('Lihat Semua', style: TextStyle(color: primaryBlue)),
+              children: [
+                const Text('Kategori', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const ProductsPage()),
+                    );
+                  },
+                  child: const Text('Semua Produk', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF2563FF))),
+                ),
               ],
             ),
             const SizedBox(height: 10),
@@ -252,12 +468,80 @@ class _HomePageState extends State<HomePage> {
                 mainAxisSpacing: 10,
                 crossAxisSpacing: 10,
                 childAspectRatio: 1,
-                children: _categories.map((c) => _CategoryTile(name: (c['name'] ?? c['title'] ?? 'Kategori').toString(), imageUrl: (c['image_url'] ?? 'https://picsum.photos/seed/cat/100/100').toString())).toList(),
+                children: _categories.map((c) {
+                  final name = (c['name'] ?? c['title'] ?? 'Kategori').toString();
+                  return _CategoryTile(
+                    name: name,
+                    icon: _getCategoryIcon(name),
+                    isSelected: _selectedCategory == name,
+                    onTap: () => _onCategoryTap(name),
+                  );
+                }).toList(),
               ),
             ),
             const SizedBox(height: 8),
-            const Text('Produk Unggulan', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
+            if (_selectedCategory != null) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Produk $_selectedCategory', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (_loadingFiltered)
+                 const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()))
+              else if (_filteredProducts.isEmpty)
+                 const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Center(child: Text('Tidak ada produk untuk kategori ini', style: TextStyle(color: Color(0xFF8E99AF)))),
+                 )
+              else
+                 GridView.builder(
+                    physics: const NeverScrollableScrollPhysics(),
+                    shrinkWrap: true,
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                       crossAxisCount: 2, 
+                       childAspectRatio: 0.72, 
+                       mainAxisSpacing: 10, 
+                       crossAxisSpacing: 10
+                    ),
+                    itemCount: _filteredProducts.length,
+                    itemBuilder: (context, i) {
+                       final p = _filteredProducts[i];
+                       return _ProductCard(
+                          title: (p['name'] ?? p['title'] ?? '').toString(),
+                          price: (p['prize'] ?? p['price'] ?? 0) as num,
+                          imageUrl: (p['image_url'] ?? '').toString(),
+                          onTap: () {
+                            final id = (p['id'] ?? '').toString();
+                            if (id.isNotEmpty) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => ProductDetailView(productId: id),
+                                ),
+                              );
+                            }
+                          },
+                       );
+                    },
+                 ),
+            ] else ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Produk Unggulan', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)),
+                GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _isFeaturedExpanded = !_isFeaturedExpanded;
+                    });
+                  },
+                  child: Text(_isFeaturedExpanded ? 'Tutup' : 'Lihat Semua', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF2563FF))),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
             if (_featured.isEmpty && _newProducts.isEmpty && _forYou.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 24),
@@ -266,30 +550,58 @@ class _HomePageState extends State<HomePage> {
                       style: TextStyle(color: Color(0xFF8E99AF))),
                 ),
               ),
-            _ProductList(items: _featured),
-            const SizedBox(height: 16),
+            // Show Featured products
+            if (_isFeaturedExpanded)
+              GridView.builder(
+                physics: const NeverScrollableScrollPhysics(),
+                shrinkWrap: true,
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2, 
+                  childAspectRatio: 0.72, 
+                  mainAxisSpacing: 10, 
+                  crossAxisSpacing: 10
+                ),
+                itemCount: (_featured.isNotEmpty ? _featured : _newProducts).length,
+                itemBuilder: (context, i) {
+                  final p = (_featured.isNotEmpty ? _featured : _newProducts)[i];
+                  return _ProductCard(
+                    title: (p['name'] ?? p['title'] ?? '').toString(),
+                    price: (p['prize'] ?? p['price'] ?? 0) as num,
+                    imageUrl: (p['image_url'] ?? '').toString(),
+                    onTap: () {
+                      final id = (p['id'] ?? '').toString();
+                      if (id.isNotEmpty) {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ProductDetailView(productId: id),
+                          ),
+                        );
+                      }
+                    },
+                  );
+                },
+              )
+            else
+              _ProductList(items: _featured.isNotEmpty ? _featured : _newProducts),
+            const SizedBox(height: 24),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: const [
-                Text('Barang Baru', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                Text('Lihat Semua', style: TextStyle(color: primaryBlue)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            _ProductList(items: _newProducts),
-            const SizedBox(height: 16),
-            Row(
-              children: const [
-                Text('Hanya Untukmu', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                Text('Hanya Untukmu', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)),
                 SizedBox(width: 6),
-                Icon(CupertinoIcons.star_fill, color: primaryBlue, size: 16),
+                Icon(CupertinoIcons.star_fill, color: primaryBlue, size: 18),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             GridView.builder(
               physics: const NeverScrollableScrollPhysics(),
               shrinkWrap: true,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, childAspectRatio: 0.72, mainAxisSpacing: 10, crossAxisSpacing: 10),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                 crossAxisCount: 2, 
+                 childAspectRatio: 0.65, // Adjusted for taller cards
+                 mainAxisSpacing: 12, 
+                 crossAxisSpacing: 12
+              ),
               itemCount: _forYou.length,
               itemBuilder: (context, i) {
                 final p = _forYou[i];
@@ -311,6 +623,7 @@ class _HomePageState extends State<HomePage> {
                 );
               },
             ),
+            ],
             ],
           ],
         ),
@@ -354,26 +667,36 @@ class _HomePageState extends State<HomePage> {
 
 class _CategoryTile extends StatelessWidget {
   final String name;
-  final String imageUrl;
-  const _CategoryTile({required this.name, required this.imageUrl});
+  final IconData icon;
+  final VoidCallback? onTap;
+  final bool isSelected;
+
+  const _CategoryTile({
+    required this.name,
+    required this.icon,
+    this.onTap,
+    this.isSelected = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: Image.network(
-            imageUrl,
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          Container(
             width: 64,
             height: 64,
-            fit: BoxFit.cover,
-            errorBuilder: (c, e, s) => Container(width: 64, height: 64, color: const Color(0xFFE9F0FF)),
+            decoration: BoxDecoration(
+              color: isSelected ? const Color(0xFF2563FF) : const Color(0xFFF2F6FF),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: isSelected ? Colors.white : const Color(0xFF2563FF), size: 32),
           ),
-        ),
-        const SizedBox(height: 4),
-        Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
-      ],
+          const SizedBox(height: 4),
+          Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+        ],
+      ),
     );
   }
 }
@@ -385,11 +708,12 @@ class _ProductList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 210,
+      height: 260, // Increased height to accommodate taller cards
       child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 4), // Add padding for shadow
         scrollDirection: Axis.horizontal,
         itemCount: items.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 10),
+        separatorBuilder: (context, index) => const SizedBox(width: 12),
         itemBuilder: (context, i) {
           final p = items[i];
           return _ProductCard(
@@ -421,10 +745,20 @@ class _ProductCard extends StatelessWidget {
   final VoidCallback? onTap;
   const _ProductCard({required this.title, required this.price, required this.imageUrl, this.onTap});
 
+  String _formatPrice(num price) {
+    return price.toStringAsFixed(0).replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+      (Match m) => '${m[1]}.',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     const primaryBlue = Color(0xFF2563FF);
-    const textSecondary = Color(0xFF8E99AF);
+    // Updated colors to match the image style
+    const textDark = Color(0xFF1F2937); // Darker for prices
+    const textGrey = Color(0xFF6B7280); // Grey for titles
+    
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
@@ -440,20 +774,20 @@ class _ProductCard extends StatelessWidget {
               borderRadius: const BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12)),
               child: Image.network(
                 imageUrl,
-                height: 110,
+                height: 160, // Taller image as per visual reference
                 width: 160,
                 fit: BoxFit.cover,
-                errorBuilder: (c, e, s) => Container(height: 110, width: 160, color: const Color(0xFFE9F0FF)),
+                errorBuilder: (c, e, s) => Container(height: 160, width: 160, color: const Color(0xFFE9F0FF)),
               ),
             ),
             Padding(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(10),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: textSecondary)),
+                  Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: textGrey, fontSize: 12)),
                   const SizedBox(height: 6),
-                  Text('Rp ${price.toStringAsFixed(0)}', style: const TextStyle(color: primaryBlue, fontWeight: FontWeight.w600)),
+                  Text('Rp ${_formatPrice(price)}', style: const TextStyle(color: textDark, fontWeight: FontWeight.bold, fontSize: 14)),
                 ],
               ),
             ),

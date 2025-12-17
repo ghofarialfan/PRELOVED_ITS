@@ -6,8 +6,9 @@ import 'package:intl/date_symbol_data_local.dart';
 
 class PaymentPage extends StatefulWidget {
   final List<Map<String, dynamic>> items;
+  final String? orderId;
   
-  const PaymentPage({super.key, required this.items});
+  const PaymentPage({super.key, required this.items, this.orderId});
 
   @override
   State<PaymentPage> createState() => _PaymentPageState();
@@ -241,7 +242,7 @@ class _PaymentPageState extends State<PaymentPage> {
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Colors.white,
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))],
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -5))],
         ),
         child: Row(
           children: [
@@ -256,7 +257,7 @@ class _PaymentPageState extends State<PaymentPage> {
               ),
             ),
             ElevatedButton(
-              onPressed: () {}, // Implement payment
+              onPressed: _processPayment,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF1F1F1F),
                 foregroundColor: Colors.white,
@@ -317,94 +318,42 @@ class _PaymentPageState extends State<PaymentPage> {
   }
 
   Future<void> _handleBackToOrders() async {
-    try {
-      final orderId = await _createPendingOrderAndClearCart();
+    if (widget.orderId != null) {
       if (!mounted) return;
-      Map<String, dynamic>? prefetch;
-      if (orderId != null && orderId.isNotEmpty) {
-        final first = widget.items.isNotEmpty ? widget.items.first : null;
-        final name = first == null ? null : (first['name'] ?? first['title'])?.toString();
-        final image = first == null ? null : (first['image_url'] ?? '')?.toString();
-        final sellerName = first == null ? null : (first['seller_name'] ?? '')?.toString();
-        prefetch = {
-          'id': orderId,
-          'order_number': orderId,
-          if (name != null && name.isNotEmpty) 'description': name,
-          if (sellerName != null && sellerName.isNotEmpty) 'seller_name': sellerName,
-          if (image != null && image.isNotEmpty) 'image_url': image,
-        };
-      }
-      Navigator.pushNamed(context, '/orders', arguments: {
-        'status': 'Belum Dibayar',
-        'orderId': orderId,
-        if (prefetch != null) 'prefetchOrder': prefetch,
-      });
+      Navigator.pushNamedAndRemoveUntil(context, '/orders', (route) => route.isFirst, arguments: 'Belum Dibayar');
       return;
-    } catch (_) {}
-    if (!mounted) return;
-    Navigator.pushNamed(context, '/orders', arguments: 'Belum Dibayar');
+    }
+    Navigator.pop(context);
   }
 
-  Future<String?> _createPendingOrderAndClearCart() async {
-    final client = Supabase.instance.client;
-    final user = client.auth.currentUser;
-    if (user == null) return null;
-
-    if (widget.items.isEmpty) return null;
-
-    final itemsTotal = _itemsTotal;
-    final shippingFee = _shippingCost;
-    final grand = _grandTotal;
-
-    String? sellerId;
-    for (final it in widget.items) {
-      final s = (it['seller_id'] ?? '').toString();
-      if (s.isNotEmpty) {
-        sellerId = s;
-        break;
-      }
+  Future<void> _processPayment() async {
+    if (widget.orderId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Order ID missing')));
+      return;
     }
+    
+    setState(() => _loading = true);
+    try {
+      final client = Supabase.instance.client;
+      
+      // Update order with final details
+      await client.from('orders').update({
+        'status': 'dikemas', 
+        'shipping_fee': _shippingCost,
+        'total_price': _grandTotal,
+        'address_name': _addressName,
+        'address_line': _addressLine,
+        'address_phone': _contactPhone,
+        'address_email': _contactEmail,
+      }).eq('id', widget.orderId!);
 
-    Map<String, dynamic> orderPayload = {
-      'buyer_id': user.id,
-      if (sellerId != null) 'seller_id': sellerId,
-      'total_price': grand,
-      'status': 'pending',
-      'shipping_fee': shippingFee,
-      'shipping_method_id': null,
-      'address_name': _addressName,
-      'address_line': _addressLine,
-      'address_phone': _contactPhone,
-      'address_email': _contactEmail,
-    };
-
-    final insertedOrder = await client.from('orders').insert(orderPayload).select('id').maybeSingle();
-    final orderId = (insertedOrder?['id'] ?? '').toString();
-    if (orderId.isEmpty) return null;
-
-    final items = <Map<String, dynamic>>[];
-    for (final it in widget.items) {
-      final pid = (it['id'] ?? it['product_id'] ?? '').toString();
-      if (pid.isEmpty) continue;
-      final qty = (it['quantity'] ?? 0) as num;
-      final price = (it['discount_price'] ?? it['price'] ?? 0) as num;
-      items.add({
-        'order_id': orderId,
-        'product_id': pid,
-        'qty': qty,
-        'price_at_buy': price,
-      });
+      if (!mounted) return;
+      Navigator.pushNamedAndRemoveUntil(context, '/orders', (route) => route.isFirst, arguments: 'Dalam Proses');
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal memproses pembayaran: $e')));
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-    if (items.isNotEmpty) {
-      await client.from('order_items').insert(items);
-    }
-
-    final cartIds = widget.items.map((e) => (e['cart_id'] ?? '').toString()).where((id) => id.isNotEmpty).toList();
-    if (cartIds.isNotEmpty) {
-      final filterVal = '(${cartIds.map((e) => '"$e"').join(',')})';
-      await client.from('carts').delete().filter('id', 'in', filterVal);
-    }
-    return orderId;
   }
 
   Widget _buildSectionCard({required String title, required Widget content, required VoidCallback onEdit}) {
@@ -413,7 +362,7 @@ class _PaymentPageState extends State<PaymentPage> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5)],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 5)],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -446,7 +395,7 @@ class _PaymentPageState extends State<PaymentPage> {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.blue.withOpacity(0.1) : Colors.grey[100],
+          color: isSelected ? Colors.blue.withValues(alpha: 0.1) : Colors.grey[100],
           borderRadius: BorderRadius.circular(8),
           border: isSelected ? Border.all(color: Colors.blue) : null,
         ),
@@ -485,7 +434,7 @@ class _PaymentPageState extends State<PaymentPage> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.blue.withOpacity(0.1) : Colors.grey[100],
+          color: isSelected ? Colors.blue.withValues(alpha: 0.1) : Colors.grey[100],
           borderRadius: BorderRadius.circular(20),
           border: isSelected ? Border.all(color: Colors.blue) : null,
         ),

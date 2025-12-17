@@ -193,7 +193,7 @@ class _OrdersPageState extends State<OrdersPage> {
           icon: const Icon(CupertinoIcons.back),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text('Pesanan'),
+        title: const Text('Riwayat Pesanan'),
         centerTitle: true,
         elevation: 0,
         backgroundColor: Colors.white,
@@ -233,7 +233,7 @@ class _OrdersPageState extends State<OrdersPage> {
                     setState(() => _tabIndex = 1);
                     await _load();
                   },
-                  child: const Text('penjualan'),
+                  child: const Text('Penjualan'),
                 ),
               ),
             ],
