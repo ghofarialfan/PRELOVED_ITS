@@ -27,13 +27,23 @@ class _ProductDetailViewState extends State<ProductDetailView> {
   }
 
   String _getPublicImageUrl(String path) {
+    if (path.isEmpty) return '';
     if (path.startsWith('http')) return path;
     var normalized = path.trim();
     normalized = normalized.replaceFirst(RegExp(r'^/+'), '');
+    
+    // DEBUG: Cek path aslinya
+    debugPrint('[_getPublicImageUrl] Original Path: $path');
+    
+    // Jika tidak ada slash, kemungkinan besar ini ada di root bucket ATAU butuh folder 'products/'
+    // Mari kita coba paksa tambah 'products/' karena biasanya file diupload ke folder tersebut.
     if (!normalized.contains('/')) {
-      normalized = 'products/$normalized';
+       normalized = 'products/$normalized';
     }
-    return Supabase.instance.client.storage.from(_storageBucketName).getPublicUrl(normalized);
+    
+    final url = Supabase.instance.client.storage.from(_storageBucketName).getPublicUrl(normalized);
+    debugPrint('[_getPublicImageUrl] Generated URL: $url');
+    return url;
   }
 
   Future<void> _loadProduct() async {
@@ -41,18 +51,19 @@ class _ProductDetailViewState extends State<ProductDetailView> {
       final client = Supabase.instance.client;
       var resp = await client
           .from('products')
-          .select('*')
+          .select('*, product_images(id, image_url, order_index)') // Langsung fetch product_images
           .eq('id', widget.productId)
           .maybeSingle();
 
       debugPrint('[_loadProduct] initial lookup productId=${widget.productId} response=$resp');
 
       if (resp == null) {
+        // Fallback untuk legacy int ID jika diperlukan
         final tryInt = int.tryParse(widget.productId);
         if (tryInt != null) {
           final resp2 = await client
               .from('products')
-              .select('*, product_images(id, image_url, order_index, is_featured)')
+              .select('*, product_images(id, image_url, order_index)')
               .eq('id', tryInt)
               .maybeSingle();
           debugPrint('[_loadProduct] fallback lookup int id=$tryInt response=$resp2');
@@ -71,43 +82,9 @@ class _ProductDetailViewState extends State<ProductDetailView> {
       }
 
       final data = Map<String, dynamic>.from(resp);
-
-      try {
-        final imagesRaw = data['product_images'];
-        if (imagesRaw != null && imagesRaw is List && imagesRaw.isNotEmpty) {
-          final imagesList = imagesRaw
-              .map((img) {
-                if (img is! Map) return null;
-                final mm = Map<String, dynamic>.from(img);
-                final path = mm['image_url'] ?? mm['imageUrl'];
-                if (path != null && path is String && !path.startsWith('http')) {
-                  try {
-                    mm['image_url'] = client.storage.from(_storageBucketName).getPublicUrl(path);
-                  } catch (e) {
-                    debugPrint('Error getting public URL: $e');
-                  }
-                }
-                return mm;
-              })
-              .where((img) => img != null)
-              .cast<Map<String, dynamic>>()
-              .toList();
-
-          imagesList.sort((a, b) => (a['order_index'] ?? 0).compareTo(b['order_index'] ?? 0));
-          data['product_images'] = imagesList;
-        }
-
-        final mainPath = data['image_url'] ?? data['imageUrl'];
-        if (mainPath != null && mainPath is String && !mainPath.startsWith('http')) {
-          try {
-            data['image_url'] = client.storage.from(_storageBucketName).getPublicUrl(mainPath);
-          } catch (e) {
-            debugPrint('Error getting main image URL: $e');
-          }
-        }
-      } catch (e) {
-        debugPrint('[_loadProduct] error converting image paths: $e');
-      }
+      
+      // Hapus logika manual parsing image_url di sini yang berlebihan
+      // Kita akan proses semuanya di bagian _productImages construction
 
       final reviews = await client
           .from('product_reviews')
@@ -122,9 +99,28 @@ class _ProductDetailViewState extends State<ProductDetailView> {
         avg = sum / total;
       }
 
+      // Proses Product Images
       List<Map<String, dynamic>> images = [];
-      final productImagesData = data['product_images'];
-      if (productImagesData != null && productImagesData is List) {
+      var productImagesData = data['product_images'];
+      
+      // FALLBACK: Jika join gagal (null) atau kosong, coba fetch manual dari tabel product_images
+      if (productImagesData == null || (productImagesData is List && productImagesData.isEmpty)) {
+        try {
+          final manualImages = await client
+              .from('product_images')
+              .select('id, image_url, order_index')
+              .eq('product_id', widget.productId)
+              .order('order_index', ascending: true);
+          if (manualImages != null && manualImages is List && manualImages.isNotEmpty) {
+            productImagesData = manualImages;
+            debugPrint('[_loadProduct] Fetched images manually: ${manualImages.length} images');
+          }
+        } catch (e) {
+          debugPrint('[_loadProduct] Manual fetch images failed: $e');
+        }
+      }
+
+      if (productImagesData != null && productImagesData is List && productImagesData.isNotEmpty) {
         images = productImagesData
             .map((m) {
               if (m is! Map) return null;
@@ -137,6 +133,16 @@ class _ProductDetailViewState extends State<ProductDetailView> {
             .cast<Map<String, dynamic>>()
             .toList();
         images.sort((a, b) => (a['order_index'] ?? 0).compareTo(b['order_index'] ?? 0));
+      } else {
+        // Fallback jika tidak ada product_images, gunakan image_url dari tabel products
+        final mainImg = (data['image_url'] ?? data['imageUrl']) as String?;
+        if (mainImg != null && mainImg.isNotEmpty) {
+          images.add({
+             'id': 'main',
+             'image_url': _getPublicImageUrl(mainImg),
+             'order_index': 0
+          });
+        }
       }
 
       if (mounted) {
@@ -422,15 +428,49 @@ class _ProductDetailViewState extends State<ProductDetailView> {
                             itemCount: _productImages.length,
                             onPageChanged: (i) => setState(() => _currentImageIndex = i),
                             itemBuilder: (context, index) {
-                              return Image.network(
-                                _productImages[index]['image_url'],
-                                fit: BoxFit.cover,
-                                headers: const {'Cache-Control': 'no-cache'},
-                                errorBuilder: (context, error, stackTrace) {
-                                  return Center(
-                                    child: Icon(Icons.broken_image, size: 64, color: Colors.grey[400]),
+                              return GestureDetector(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => FullScreenImageViewer(
+                                        imageUrls: _productImages.map((e) => e['image_url'] as String).toList(),
+                                        initialIndex: index,
+                                      ),
+                                    ),
                                   );
                                 },
+                                child: Image.network(
+                                  _productImages[index]['image_url'],
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) {
+                                    debugPrint('Image load error: $error');
+                                    return Container(
+                                      color: Colors.grey[200],
+                                      padding: const EdgeInsets.all(8),
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          const Icon(Icons.broken_image, size: 32, color: Colors.red),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            'Error: $error',
+                                            style: const TextStyle(fontSize: 10, color: Colors.red),
+                                            textAlign: TextAlign.center,
+                                            maxLines: 2,
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            _productImages[index]['image_url'],
+                                            style: const TextStyle(fontSize: 8, color: Colors.black),
+                                            textAlign: TextAlign.center,
+                                            maxLines: 4,
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
                               );
                             },
                           ),
@@ -541,6 +581,146 @@ class _ProductDetailViewState extends State<ProductDetailView> {
     return priceInt.toString().replaceAllMapped(
       RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
       (Match m) => '${m[1]}.',
+    );
+  }
+}
+
+class FullScreenImageViewer extends StatefulWidget {
+  final List<String> imageUrls;
+  final int initialIndex;
+
+  const FullScreenImageViewer({
+    super.key,
+    required this.imageUrls,
+    this.initialIndex = 0,
+  });
+
+  @override
+  State<FullScreenImageViewer> createState() => _FullScreenImageViewerState();
+}
+
+class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
+  late PageController _pageController;
+  late int _currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+    _pageController = PageController(initialPage: widget.initialIndex);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        title: Text('${_currentIndex + 1} / ${widget.imageUrls.length}'),
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: PageView.builder(
+        controller: _pageController,
+        itemCount: widget.imageUrls.length,
+        onPageChanged: (index) {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
+        itemBuilder: (context, index) {
+          return ZoomableImage(imageUrl: widget.imageUrls[index]);
+        },
+      ),
+    );
+  }
+}
+
+class ZoomableImage extends StatefulWidget {
+  final String imageUrl;
+
+  const ZoomableImage({super.key, required this.imageUrl});
+
+  @override
+  State<ZoomableImage> createState() => _ZoomableImageState();
+}
+
+class _ZoomableImageState extends State<ZoomableImage> with SingleTickerProviderStateMixin {
+  late TransformationController _transformationController;
+  late AnimationController _animationController;
+  Animation<Matrix4>? _animation;
+  TapDownDetails? _doubleTapDetails;
+
+  @override
+  void initState() {
+    super.initState();
+    _transformationController = TransformationController();
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    )..addListener(() {
+        _transformationController.value = _animation!.value;
+      });
+  }
+
+  @override
+  void dispose() {
+    _transformationController.dispose();
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  void _handleDoubleTapDown(TapDownDetails details) {
+    _doubleTapDetails = details;
+  }
+
+  void _handleDoubleTap() {
+    final position = _doubleTapDetails!.localPosition;
+
+    Matrix4 endMatrix;
+    // Check if zoomed in (scale > 1)
+    if (_transformationController.value.getMaxScaleOnAxis() > 1.05) {
+      endMatrix = Matrix4.identity();
+    } else {
+      const double scale = 2.5;
+      final x = -position.dx * (scale - 1);
+      final y = -position.dy * (scale - 1);
+      endMatrix = Matrix4.identity()
+        ..translate(x, y)
+        ..scale(scale);
+    }
+
+    _animation = Matrix4Tween(
+      begin: _transformationController.value,
+      end: endMatrix,
+    ).animate(CurveTween(curve: Curves.easeInOut).animate(_animationController));
+
+    _animationController.forward(from: 0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onDoubleTapDown: _handleDoubleTapDown,
+      onDoubleTap: _handleDoubleTap,
+      child: InteractiveViewer(
+        transformationController: _transformationController,
+        minScale: 1.0,
+        maxScale: 4.0,
+        child: Center(
+          child: Image.network(
+            widget.imageUrl,
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) {
+              return const Icon(Icons.broken_image, color: Colors.white, size: 64);
+            },
+          ),
+        ),
+      ),
     );
   }
 }

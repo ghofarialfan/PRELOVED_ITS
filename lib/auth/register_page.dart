@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/auth_service.dart';
 
@@ -20,8 +19,7 @@ class _RegisterPageState extends State<RegisterPage> {
 
   bool _loading = false;
   bool _obscure = true;
-
-  File? _photo; // preview lokal
+  File? _photo;
 
   @override
   void dispose() {
@@ -31,9 +29,6 @@ class _RegisterPageState extends State<RegisterPage> {
     super.dispose();
   }
 
-  // =========================
-  // PICK PHOTO (PREVIEW)
-  // =========================
   Future<void> _pickPhoto() async {
     final picker = ImagePicker();
     final x = await picker.pickImage(source: ImageSource.gallery);
@@ -42,33 +37,6 @@ class _RegisterPageState extends State<RegisterPage> {
     }
   }
 
-  // =========================
-  // UPLOAD PHOTO TO STORAGE
-  // =========================
-  Future<String?> _uploadPhoto(String userId) async {
-    if (_photo == null) return null;
-
-    final fileExt = _photo!.path.split('.').last;
-    final filePath = 'avatars/$userId.$fileExt';
-
-    await Supabase.instance.client.storage
-        .from('avatars')
-        .upload(
-          filePath,
-          _photo!,
-          fileOptions: const FileOptions(upsert: true),
-        );
-
-    final url = Supabase.instance.client.storage
-        .from('avatars')
-        .getPublicUrl(filePath);
-
-    return url;
-  }
-
-  // =========================
-  // SUBMIT REGISTER
-  // =========================
   Future<void> _submit() async {
     if (_loading) return;
 
@@ -82,29 +50,19 @@ class _RegisterPageState extends State<RegisterPage> {
     }
 
     setState(() => _loading = true);
-
     try {
-      // 1️⃣ Sign up auth
       await AuthService.instance.signUp(
         email: email,
         password: pass,
         phone: phone,
       );
 
-      final user = Supabase.instance.client.auth.currentUser;
-      if (user == null) throw 'User tidak ditemukan';
-
-      // 2️⃣ Upload foto (kalau ada)
-      final photoUrl = await _uploadPhoto(user.id);
-
-      // 3️⃣ Update row users (photo_url)
-      await Supabase.instance.client.from('users').update({
-        'photo_url': photoUrl,
-      }).eq('id', user.id);
-
       if (!mounted) return;
 
-      _snack('Akun berhasil dibuat. Silakan login.');
+      _snack(
+        'Akun berhasil dibuat. Silakan cek email untuk verifikasi, lalu login.',
+      );
+
       Navigator.pushNamedAndRemoveUntil(context, '/login', (r) => false);
     } catch (e) {
       if (!mounted) return;
@@ -119,8 +77,11 @@ class _RegisterPageState extends State<RegisterPage> {
         .showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  InputDecoration _inputStyle(String hint,
-      {Widget? suffix, Widget? prefix}) {
+  InputDecoration _inputStyle({
+    required String hint,
+    Widget? prefixIcon,
+    Widget? suffixIcon,
+  }) {
     return InputDecoration(
       hintText: hint,
       filled: true,
@@ -131,8 +92,8 @@ class _RegisterPageState extends State<RegisterPage> {
         borderRadius: BorderRadius.circular(28),
         borderSide: BorderSide.none,
       ),
-      suffixIcon: suffix,
-      prefixIcon: prefix,
+      prefixIcon: prefixIcon,
+      suffixIcon: suffixIcon,
     );
   }
 
@@ -144,13 +105,10 @@ class _RegisterPageState extends State<RegisterPage> {
       backgroundColor: Colors.white,
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+          padding: const EdgeInsets.all(24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // =========================
-              // TITLE
-              // =========================
               const Text(
                 'Buat\nAkun',
                 style: TextStyle(
@@ -162,9 +120,6 @@ class _RegisterPageState extends State<RegisterPage> {
 
               const SizedBox(height: 24),
 
-              // =========================
-              // PHOTO PICKER
-              // =========================
               GestureDetector(
                 onTap: _pickPhoto,
                 child: Container(
@@ -190,13 +145,10 @@ class _RegisterPageState extends State<RegisterPage> {
 
               const SizedBox(height: 28),
 
-              // =========================
-              // FORM
-              // =========================
               TextField(
                 controller: _emailC,
                 keyboardType: TextInputType.emailAddress,
-                decoration: _inputStyle('Email'),
+                decoration: _inputStyle(hint: 'Email'),
               ),
               const SizedBox(height: 14),
 
@@ -204,37 +156,39 @@ class _RegisterPageState extends State<RegisterPage> {
                 controller: _passC,
                 obscureText: _obscure,
                 decoration: _inputStyle(
-                  'Kata Sandi',
-                  suffix: IconButton(
-                    onPressed: () =>
-                        setState(() => _obscure = !_obscure),
+                  hint: 'Kata Sandi',
+                  suffixIcon: IconButton(
                     icon: Icon(
                       _obscure
                           ? Icons.visibility_off
                           : Icons.visibility,
                     ),
+                    onPressed: () =>
+                        setState(() => _obscure = !_obscure),
                   ),
                 ),
               ),
               const SizedBox(height: 14),
 
+              /// 🔧 FIX FLAG ALIGNMENT
               TextField(
                 controller: _phoneC,
                 keyboardType: TextInputType.phone,
                 decoration: _inputStyle(
-                  'Nomor Telepon',
-                  prefix: const Padding(
-                    padding: EdgeInsets.only(left: 14, right: 10),
-                    child: Text('🇮🇩', style: TextStyle(fontSize: 18)),
+                  hint: 'Nomor Telepon',
+                  prefixIcon: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      SizedBox(width: 14),
+                      Text('🇮🇩', style: TextStyle(fontSize: 20)),
+                      SizedBox(width: 8),
+                    ],
                   ),
                 ),
               ),
 
               const Spacer(),
 
-              // =========================
-              // BUTTONS
-              // =========================
               SizedBox(
                 width: double.infinity,
                 height: 64,
@@ -252,12 +206,14 @@ class _RegisterPageState extends State<RegisterPage> {
                       ? const SizedBox(
                           width: 22,
                           height: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child:
+                              CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Text(
                           'Selanjutnya',
                           style: TextStyle(
-                              fontSize: 20, fontWeight: FontWeight.w500),
+                              fontSize: 20,
+                              fontWeight: FontWeight.w500),
                         ),
                 ),
               ),
