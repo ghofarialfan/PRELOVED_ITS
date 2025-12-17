@@ -15,6 +15,9 @@ class _ResetNewPasswordPageState extends State<ResetNewPasswordPage> {
   final _p2 = TextEditingController();
   bool _loading = false;
 
+  static const _primary = Color(0xFF0051FF);
+  static const _fieldFill = Color(0xFFF3F5F9);
+
   @override
   void initState() {
     super.initState();
@@ -29,9 +32,7 @@ class _ResetNewPasswordPageState extends State<ResetNewPasswordPage> {
 
     try {
       await Supabase.instance.client.auth.exchangeCodeForSession(code);
-    } catch (_) {
-      // kalau gagal, tombol simpan akan kasih pesan
-    }
+    } catch (_) {}
   }
 
   @override
@@ -39,6 +40,23 @@ class _ResetNewPasswordPageState extends State<ResetNewPasswordPage> {
     _p1.dispose();
     _p2.dispose();
     super.dispose();
+  }
+
+  void _snack(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  InputDecoration _pill(String hint) {
+    return InputDecoration(
+      hintText: hint,
+      filled: true,
+      fillColor: _fieldFill,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(30),
+        borderSide: BorderSide.none,
+      ),
+    );
   }
 
   Future<void> _save() async {
@@ -51,10 +69,6 @@ class _ResetNewPasswordPageState extends State<ResetNewPasswordPage> {
       _snack('Password wajib diisi.');
       return;
     }
-    if (a.length < 6) {
-      _snack('Password minimal 6 karakter.');
-      return;
-    }
     if (a != b) {
       _snack('Password tidak sama.');
       return;
@@ -62,7 +76,7 @@ class _ResetNewPasswordPageState extends State<ResetNewPasswordPage> {
 
     final session = Supabase.instance.client.auth.currentSession;
     if (session == null) {
-      _snack('Session reset belum aktif. Buka link reset dari email terlebih dulu.');
+      _snack('Session reset belum aktif. Buka link reset dari email dulu.');
       return;
     }
 
@@ -85,71 +99,108 @@ class _ResetNewPasswordPageState extends State<ResetNewPasswordPage> {
     }
   }
 
-  void _snack(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFF),
-      appBar: AppBar(title: const Text('Buat Kata Sandi Baru')),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            const Text('Masukkan kata sandi baru untuk akunmu.'),
-            const SizedBox(height: 14),
-            TextField(
-              controller: _p1,
-              obscureText: true,
-              decoration: InputDecoration(
-                hintText: 'Kata Sandi Baru',
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _p2,
-              obscureText: true,
-              decoration: InputDecoration(
-                hintText: 'Ulangi Kata Sandi Baru',
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-            ),
-            const SizedBox(height: 18),
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton(
-                onPressed: _loading ? null : _save,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2563FF),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
+      backgroundColor: Colors.white, // ✅ polos
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, c) {
+            return SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(24, 18, 24, 24),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: c.maxHeight),
+                child: IntrinsicHeight(
+                  child: Column(
+                    children: [
+                      const Spacer(),
+
+                      const Icon(Icons.password_rounded,
+                          size: 72, color: _primary),
+                      const SizedBox(height: 14),
+
+                      const Text(
+                        'Buat Kata Sandi Baru',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+
+                      const Text(
+                        'Masukkan kata sandi baru untuk akunmu.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.black54,
+                          fontSize: 16,
+                          height: 1.35,
+                        ),
+                      ),
+                      const SizedBox(height: 22),
+
+                      TextField(
+                        controller: _p1,
+                        obscureText: true,
+                        decoration: _pill('Kata Sandi Baru'),
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: _p2,
+                        obscureText: true,
+                        decoration: _pill('Ulangi Kata Sandi Baru'),
+                      ),
+
+                      const SizedBox(height: 22),
+
+                      SizedBox(
+                        width: double.infinity,
+                        height: 64,
+                        child: ElevatedButton(
+                          onPressed: _loading ? null : _save,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _primary,
+                            foregroundColor: Colors.white,
+                            disabledBackgroundColor:
+                                _primary.withOpacity(0.6),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(26),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: _loading
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Text(
+                                  'Simpan',
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 14),
+
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Batalkan'),
+                      ),
+
+                      const Spacer(flex: 2),
+                    ],
                   ),
                 ),
-                child: _loading
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Simpan'),
               ),
-            ),
-          ],
+            );
+          },
         ),
       ),
     );
