@@ -34,12 +34,79 @@ class _ProductDetailViewState extends State<ProductDetailView> {
   Future<void> _loadProduct() async {
     try {
       final client = Supabase.instance.client;
-      final response = await client
+      var resp = await client
           .from('products')
           .select('*, product_images(id, image_url, order_index, is_featured)')
           .eq('id', widget.productId)
-          .single();
+          .maybeSingle();
 
+      debugPrint('[_loadProduct] initial lookup productId=${widget.productId} response=$resp');
+
+      // Fallback: if not found, try numeric id (some tables use integer ids)
+      if (resp == null) {
+        final tryInt = int.tryParse(widget.productId);
+        if (tryInt != null) {
+          final resp2 = await client
+              .from('products')
+              .select('*, product_images(id, image_url, order_index, is_featured)')
+              .eq('id', tryInt)
+              .maybeSingle();
+          debugPrint('[_loadProduct] fallback lookup int id=$tryInt response=$resp2');
+          if (resp2 != null) resp = resp2;
+        }
+      }
+
+      if (resp == null) {
+        if (mounted) {
+          setState(() => _loading = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Produk tidak ditemukan (id: ${widget.productId})'))
+          );
+        }
+        return;
+      }
+
+      final data = Map<String, dynamic>.from(resp);
+      
+      // PERBAIKAN: Process image URLs dengan null safety
+      try {
+        final imagesRaw = data['product_images'];
+        if (imagesRaw != null && imagesRaw is List && imagesRaw.isNotEmpty) {
+          final imagesList = imagesRaw
+              .map((img) {
+                if (img is! Map) return null;
+                final mm = Map<String, dynamic>.from(img);
+                final path = mm['image_url'] ?? mm['imageUrl'];
+                if (path != null && path is String && !path.startsWith('http')) {
+                  try {
+                    mm['image_url'] = client.storage.from(_storageBucketName).getPublicUrl(path);
+                  } catch (e) {
+                    debugPrint('Error getting public URL: $e');
+                  }
+                }
+                return mm;
+              })
+              .where((img) => img != null)
+              .cast<Map<String, dynamic>>()
+              .toList();
+          
+          imagesList.sort((a, b) => (a['order_index'] ?? 0).compareTo(b['order_index'] ?? 0));
+          data['product_images'] = imagesList;
+        }
+
+        final mainPath = data['image_url'] ?? data['imageUrl'];
+        if (mainPath != null && mainPath is String && !mainPath.startsWith('http')) {
+          try {
+            data['image_url'] = client.storage.from(_storageBucketName).getPublicUrl(mainPath);
+          } catch (e) {
+            debugPrint('Error getting main image URL: $e');
+          }
+        }
+      } catch (e) {
+        debugPrint('[_loadProduct] error converting image paths: $e');
+      }
+
+      // Get reviews
       final reviews = await client
           .from('product_reviews')
           .select('rating')
@@ -49,36 +116,47 @@ class _ProductDetailViewState extends State<ProductDetailView> {
       int total = 0;
       if (reviews.isNotEmpty) {
         total = reviews.length;
-        final sum = reviews.fold<int>(0, (s, r) => s + (r['rating'] as int));
+        final sum = reviews.fold<int>(0, (s, r) => s + ((r['rating'] as int?) ?? 0));
         avg = sum / total;
       }
 
+      // Process final images list
       List<Map<String, dynamic>> images = [];
-      if (response['product_images'] != null) {
-        images = List<Map<String, dynamic>>.from(response['product_images']);
+      final productImagesData = data['product_images'];
+      if (productImagesData != null && productImagesData is List) {
+        images = productImagesData
+            .map((m) {
+              if (m is! Map) return null;
+              final mm = Map<String, dynamic>.from(m);
+              final img = (mm['image_url'] ?? mm['imageUrl']) as String? ?? '';
+              mm['image_url'] = _getPublicImageUrl(img);
+              return mm;
+            })
+            .where((img) => img != null)
+            .cast<Map<String, dynamic>>()
+            .toList();
         images.sort((a, b) => (a['order_index'] ?? 0).compareTo(b['order_index'] ?? 0));
-        images = images.map((m) {
-          m['image_url'] = _getPublicImageUrl(m['image_url'] as String);
-          return m;
-        }).toList();
       }
 
-      setState(() {
-        _product = response;
-        _product!['average_rating'] = avg;
-        _product!['total_reviews'] = total;
-        _productImages = images;
-        if (_product!['size'] != null) {
-          _selectedSize = _product!['size'].toString();
-        }
-        _loading = false;
-      });
-
-      _checkFavorite();
-      _incrementViewCount();
-    } catch (e) {
-      setState(() => _loading = false);
       if (mounted) {
+        setState(() {
+          _product = data;
+          _product!['average_rating'] = avg;
+          _product!['total_reviews'] = total;
+          _productImages = images;
+          if (_product!['size'] != null) {
+            _selectedSize = _product!['size'].toString();
+          }
+          _loading = false;
+        });
+
+        _checkFavorite();
+        _incrementViewCount();
+      }
+    } catch (e) {
+      debugPrint('[_loadProduct] error: $e');
+      if (mounted) {
+        setState(() => _loading = false);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     }
@@ -103,7 +181,9 @@ class _ProductDetailViewState extends State<ProductDetailView> {
           .eq('user_id', user.id)
           .eq('product_id', widget.productId)
           .maybeSingle();
-      setState(() => _isFavorite = res != null);
+      if (mounted) {
+        setState(() => _isFavorite = res != null);
+      }
     } catch (_) {}
   }
 
@@ -344,6 +424,11 @@ class _ProductDetailViewState extends State<ProductDetailView> {
                                 _productImages[index]['image_url'],
                                 fit: BoxFit.cover,
                                 headers: const {'Cache-Control': 'no-cache'},
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Center(
+                                    child: Icon(Icons.broken_image, size: 64, color: Colors.grey[400]),
+                                  );
+                                },
                               );
                             },
                           ),

@@ -20,7 +20,6 @@ class _ProductsPageState extends State<ProductsPage> {
   bool _loading = true;
   String _selectedCategory = 'Semua';
   
-  // PASTI JUGA NAMA BUCKET INI SUDAH BENAR
   static const String _storageBucketName = 'photo_url_pp'; 
   
   final List<String> _categories = [
@@ -39,7 +38,7 @@ class _ProductsPageState extends State<ProductsPage> {
 
   Future<void> _loadProducts() async {
     try {
-      if (mounted) { // Pengecekan aman
+      if (mounted) {
         setState(() => _loading = true);
       }
       
@@ -53,20 +52,36 @@ class _ProductsPageState extends State<ProductsPage> {
           ''')
           .order('created_at', ascending: false);
 
-      final productsList = <Product>[]; 
+      final productsList = <Product>[];
       
+      // Response dari Supabase selalu List
       for (var item in response) {
+        // Cek tipe dengan benar
+        if (item is! Map<String, dynamic>) continue;
+        
         final productMap = Map<String, dynamic>.from(item);
         
         // Proses Gambar: Mengubah Path Relatif menjadi URL Lengkap
-        if (productMap['product_images'] != null) {
-          final images = List<Map<String, dynamic>>.from(productMap['product_images']);
+        final imagesRaw = productMap['product_images'];
+        if (imagesRaw != null && imagesRaw is List && imagesRaw.isNotEmpty) {
+          final images = imagesRaw
+              .map((img) => img is Map ? Map<String, dynamic>.from(img) : null)
+              .where((img) => img != null)
+              .cast<Map<String, dynamic>>()
+              .toList();
+          
           images.sort((a, b) => (a['order_index'] ?? 0).compareTo(b['order_index'] ?? 0));
-          final featuredImage = images.isNotEmpty ? images.first : {};
+          
+          final featuredImage = images.isNotEmpty ? images.first : <String, dynamic>{};
           final imagePath = featuredImage['image_url'] as String?;
-          if (imagePath != null && imagePath.isNotEmpty) {
-            final publicUrl = client.storage.from(_storageBucketName).getPublicUrl(imagePath);
-            productMap['image_url'] = publicUrl;
+          
+          if (imagePath != null && imagePath.isNotEmpty && !imagePath.startsWith('http')) {
+            try {
+              final publicUrl = client.storage.from(_storageBucketName).getPublicUrl(imagePath);
+              productMap['image_url'] = publicUrl;
+            } catch (e) {
+              debugPrint('Error getting public URL: $e');
+            }
           }
         }
         
@@ -80,7 +95,7 @@ class _ProductsPageState extends State<ProductsPage> {
           if (reviewsResponse.isNotEmpty) {
             final totalRating = reviewsResponse.fold<int>(
               0, 
-              (sum, review) => sum + (review['rating'] as int)
+              (sum, review) => sum + (review['rating'] as int? ?? 0)
             );
             productMap['average_rating'] = totalRating / reviewsResponse.length;
             productMap['total_reviews'] = reviewsResponse.length; 
@@ -89,14 +104,18 @@ class _ProductsPageState extends State<ProductsPage> {
             productMap['total_reviews'] = 0;
           }
         } catch (e) {
-           productMap['average_rating'] = 0.0;
-           productMap['total_reviews'] = 0;
+          debugPrint('Error getting reviews: $e');
+          productMap['average_rating'] = 0.0;
+          productMap['total_reviews'] = 0;
         }
         
-        productsList.add(Product.fromMap(productMap)); 
+        try {
+          productsList.add(Product.fromMap(productMap));
+        } catch (e) {
+          debugPrint('Error creating product from map: $e');
+        }
       }
 
-      // KOREKSI UTAMA: Tambahkan if (mounted) untuk mencegah error klik
       if (mounted) {
         setState(() {
           _products = productsList;
@@ -105,7 +124,8 @@ class _ProductsPageState extends State<ProductsPage> {
         });
       }
     } catch (e) {
-      if (mounted) { // Pengecekan aman
+      debugPrint('Error loading products: $e');
+      if (mounted) {
         setState(() => _loading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error loading products: $e')),
@@ -239,21 +259,18 @@ class _ProductsPageState extends State<ProductsPage> {
     );
   }
 
-  // FUNGSI BUILD PRODUCT CARD
   Widget _buildProductCard(Product product) {
     final displayPrice = product.discountPrice ?? product.price;
     final hasDiscount = product.discountPrice != null;
     
     return GestureDetector(
       onTap: () {
-        // KOREKSI UTAMA: Hapus .then((_) {_loadProducts();}) untuk mencegah error klik
         Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => ProductDetailView(productId: product.id),
           ),
         );
-        // Hapus pemuatan produk yang menyebabkan setState() pada disposed widget
       },
       child: Container(
         decoration: BoxDecoration(
@@ -292,7 +309,6 @@ class _ProductsPageState extends State<ProductsPage> {
                             product.imageUrl!, 
                             width: double.infinity,
                             fit: BoxFit.cover,
-                            // Mencegah cache Chrome menyimpan URL yang salah
                             headers: const {'Cache-Control': 'no-cache'}, 
                             errorBuilder: (context, error, stackTrace) {
                               return Center(
@@ -478,7 +494,6 @@ class _ProductsPageState extends State<ProductsPage> {
     );
   }
 
-  // FUNGSI BANTU MENGHITUNG DISKON
   int _calculateDiscount(Product product) {
     if (product.discountPrice == null) return 0; 
     final price = product.price; 
@@ -486,7 +501,6 @@ class _ProductsPageState extends State<ProductsPage> {
     return (((price - discountPrice) / price) * 100).round();
   }
 
-  // FUNGSI BANTU FORMAT HARGA
   String _formatPrice(dynamic price) {
     if (price == null) return '0';
     final priceInt = price is int ? price : int.tryParse(price.toString()) ?? 0;
