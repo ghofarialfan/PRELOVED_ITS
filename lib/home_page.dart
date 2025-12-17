@@ -1,7 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'Product/product_detail_view.dart';
+import 'product/product_detail_view.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -321,6 +321,14 @@ class _HomePageState extends State<HomePage> {
         onTap: (i) {
           if (i == 1) {
             Navigator.pushNamed(context, '/favorites');
+            return;
+          }
+          if (i == 2) {
+            Navigator.pushNamed(context, '/orders');
+            return;
+          }
+          if (i == 3) {
+            Navigator.pushNamed(context, '/cart');
             return;
           }
           if (i == 4) {

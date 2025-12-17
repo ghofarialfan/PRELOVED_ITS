@@ -3,7 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/product.dart'; 
-import '../Product/product_detail_view.dart';
+import '../product/product_detail_view.dart';
 
 class ProductsPage extends StatefulWidget {
   final String? category;

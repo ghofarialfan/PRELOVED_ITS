@@ -13,6 +13,7 @@ class OrdersPage extends StatefulWidget {
 class _OrdersPageState extends State<OrdersPage> {
   int _tabIndex = 0;
   String _status = 'Selesai';
+  String? _focusOrderId;
   final _repo = OrdersRepository();
   List<OrderItem> _items = const [];
   bool _loading = true;
@@ -137,7 +138,7 @@ class _OrdersPageState extends State<OrdersPage> {
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final data = await _repo.fetchOrders(isPurchase: _tabIndex == 0, status: _status);
+    final data = await _repo.fetchOrders(isPurchase: _tabIndex == 0, status: _status, orderId: _focusOrderId);
     setState(() {
       _items = data;
       _loading = false;
@@ -148,6 +149,38 @@ class _OrdersPageState extends State<OrdersPage> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is String) {
+      final v = args.trim();
+      if (v.isNotEmpty) {
+        _status = v;
+        _focusOrderId = null;
+        _load();
+      }
+      return;
+    }
+    if (args is Map) {
+      final statusArg = (args['status'] ?? '').toString();
+      final orderIdArg = (args['orderId'] ?? '').toString();
+      final prefetch = args['prefetchOrder'];
+      if (statusArg.isNotEmpty) _status = statusArg;
+      _focusOrderId = orderIdArg.isNotEmpty ? orderIdArg : null;
+      _load();
+      if (prefetch is Map && (_items.isEmpty)) {
+        try {
+          final item = OrderItem.fromMap(prefetch.cast<String, dynamic>());
+          setState(() {
+            _items = [item];
+            _loading = false;
+          });
+        } catch (_) {}
+      }
+    }
   }
 
   @override
@@ -210,6 +243,7 @@ class _OrdersPageState extends State<OrdersPage> {
             initialValue: _status,
             items: const [
               DropdownMenuItem(value: 'Selesai', child: Text('Selesai')),
+              DropdownMenuItem(value: 'Belum Dibayar', child: Text('Belum Dibayar')),
               DropdownMenuItem(value: 'Dibatalkan', child: Text('Dibatalkan')),
               DropdownMenuItem(value: 'Dalam Proses', child: Text('Dalam Proses')),
             ],

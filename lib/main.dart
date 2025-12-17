@@ -10,6 +10,7 @@ import 'orders_page.dart';
 import 'edit_profile_page.dart';
 import 'edit_photo_page.dart';
 import 'favorites_page.dart';
+import 'cart/cart_page.dart';
 
 import 'auth/login_email_page.dart';
 import 'auth/register_page.dart';
@@ -58,6 +59,7 @@ class MyApp extends StatelessWidget {
         '/edit_profile': (context) => const EditProfilePage(),
         '/edit_photo': (context) => const EditPhotoPage(),
         '/favorites': (context) => const FavoritesPage(),
+        '/cart': (context) => const CartPage(),
 
         // auth routes
         '/login': (context) => const LoginEmailPage(),

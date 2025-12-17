@@ -239,6 +239,10 @@ class _ProfilePageState extends State<ProfilePage> {
             Navigator.pushNamed(context, '/orders');
             return;
           }
+          if (i == 3) {
+            Navigator.pushNamed(context, '/cart');
+            return;
+          }
           setState(() => _selectedIndex = i);
         },
         type: BottomNavigationBarType.fixed,
