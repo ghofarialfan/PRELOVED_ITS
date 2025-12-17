@@ -8,7 +8,7 @@ import '../Product/product_detail_view.dart';
 class ProductsPage extends StatefulWidget {
   final String? category;
 
-  const ProductsPage({Key? key, this.category}) : super(key: key);
+  const ProductsPage({super.key, this.category});
 
   @override
   State<ProductsPage> createState() => _ProductsPageState();
@@ -20,8 +20,7 @@ class _ProductsPageState extends State<ProductsPage> {
   bool _loading = true;
   String _selectedCategory = 'Semua';
   
-  // PASTI JUGA NAMA BUCKET INI SUDAH BENAR
-  static const String _storageBucketName = 'photo_url_pp'; 
+  static const String _storageBucketName = 'products';
   
   final List<String> _categories = [
     'Semua', 'Elektronik', 'Fashion Pria', 'Fashion Wanita', 
@@ -39,7 +38,7 @@ class _ProductsPageState extends State<ProductsPage> {
 
   Future<void> _loadProducts() async {
     try {
-      if (mounted) { // Pengecekan aman
+      if (mounted) {
         setState(() => _loading = true);
       }
       
@@ -47,26 +46,36 @@ class _ProductsPageState extends State<ProductsPage> {
       
       final response = await client
           .from('products')
-          .select('''
-            *,
-            product_images!inner(image_url, is_featured, order_index)
-          ''')
+          .select('*')
           .order('created_at', ascending: false);
 
-      final productsList = <Product>[]; 
+      final productsList = <Product>[];
       
+      // Response dari Supabase selalu List
       for (var item in response) {
         final productMap = Map<String, dynamic>.from(item);
         
         // Proses Gambar: Mengubah Path Relatif menjadi URL Lengkap
-        if (productMap['product_images'] != null) {
-          final images = List<Map<String, dynamic>>.from(productMap['product_images']);
+        final imagesRaw = productMap['product_images'];
+        if (imagesRaw != null && imagesRaw is List && imagesRaw.isNotEmpty) {
+          final images = imagesRaw
+              .map((img) => img is Map ? Map<String, dynamic>.from(img) : null)
+              .where((img) => img != null)
+              .cast<Map<String, dynamic>>()
+              .toList();
+          
           images.sort((a, b) => (a['order_index'] ?? 0).compareTo(b['order_index'] ?? 0));
-          final featuredImage = images.isNotEmpty ? images.first : {};
+          
+          final featuredImage = images.isNotEmpty ? images.first : <String, dynamic>{};
           final imagePath = featuredImage['image_url'] as String?;
-          if (imagePath != null && imagePath.isNotEmpty) {
-            final publicUrl = client.storage.from(_storageBucketName).getPublicUrl(imagePath);
-            productMap['image_url'] = publicUrl;
+          
+          if (imagePath != null && imagePath.isNotEmpty && !imagePath.startsWith('http')) {
+            try {
+              final publicUrl = client.storage.from(_storageBucketName).getPublicUrl(imagePath);
+              productMap['image_url'] = publicUrl;
+            } catch (e) {
+              debugPrint('Error getting public URL: $e');
+            }
           }
         }
         
@@ -80,7 +89,7 @@ class _ProductsPageState extends State<ProductsPage> {
           if (reviewsResponse.isNotEmpty) {
             final totalRating = reviewsResponse.fold<int>(
               0, 
-              (sum, review) => sum + (review['rating'] as int)
+              (sum, review) => sum + (review['rating'] as int? ?? 0)
             );
             productMap['average_rating'] = totalRating / reviewsResponse.length;
             productMap['total_reviews'] = reviewsResponse.length; 
@@ -89,14 +98,18 @@ class _ProductsPageState extends State<ProductsPage> {
             productMap['total_reviews'] = 0;
           }
         } catch (e) {
-           productMap['average_rating'] = 0.0;
-           productMap['total_reviews'] = 0;
+          debugPrint('Error getting reviews: $e');
+          productMap['average_rating'] = 0.0;
+          productMap['total_reviews'] = 0;
         }
         
-        productsList.add(Product.fromMap(productMap)); 
+        try {
+          productsList.add(Product.fromMap(productMap));
+        } catch (e) {
+          debugPrint('Error creating product from map: $e');
+        }
       }
 
-      // KOREKSI UTAMA: Tambahkan if (mounted) untuk mencegah error klik
       if (mounted) {
         setState(() {
           _products = productsList;
@@ -105,7 +118,8 @@ class _ProductsPageState extends State<ProductsPage> {
         });
       }
     } catch (e) {
-      if (mounted) { // Pengecekan aman
+      debugPrint('Error loading products: $e');
+      if (mounted) {
         setState(() => _loading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error loading products: $e')),
@@ -239,21 +253,18 @@ class _ProductsPageState extends State<ProductsPage> {
     );
   }
 
-  // FUNGSI BUILD PRODUCT CARD
   Widget _buildProductCard(Product product) {
     final displayPrice = product.discountPrice ?? product.price;
     final hasDiscount = product.discountPrice != null;
     
     return GestureDetector(
       onTap: () {
-        // KOREKSI UTAMA: Hapus .then((_) {_loadProducts();}) untuk mencegah error klik
         Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => ProductDetailView(productId: product.id),
           ),
         );
-        // Hapus pemuatan produk yang menyebabkan setState() pada disposed widget
       },
       child: Container(
         decoration: BoxDecoration(
@@ -261,7 +272,7 @@ class _ProductsPageState extends State<ProductsPage> {
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -292,7 +303,6 @@ class _ProductsPageState extends State<ProductsPage> {
                             product.imageUrl!, 
                             width: double.infinity,
                             fit: BoxFit.cover,
-                            // Mencegah cache Chrome menyimpan URL yang salah
                             headers: const {'Cache-Control': 'no-cache'}, 
                             errorBuilder: (context, error, stackTrace) {
                               return Center(
@@ -393,7 +403,7 @@ class _ProductsPageState extends State<ProductsPage> {
                         vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.blue.withOpacity(0.1),
+                        color: Colors.blue.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
@@ -430,7 +440,7 @@ class _ProductsPageState extends State<ProductsPage> {
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          '${product.rating.toStringAsFixed(1)}',
+                          product.rating.toStringAsFixed(1),
                           style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
@@ -478,7 +488,6 @@ class _ProductsPageState extends State<ProductsPage> {
     );
   }
 
-  // FUNGSI BANTU MENGHITUNG DISKON
   int _calculateDiscount(Product product) {
     if (product.discountPrice == null) return 0; 
     final price = product.price; 
@@ -486,7 +495,6 @@ class _ProductsPageState extends State<ProductsPage> {
     return (((price - discountPrice) / price) * 100).round();
   }
 
-  // FUNGSI BANTU FORMAT HARGA
   String _formatPrice(dynamic price) {
     if (price == null) return '0';
     final priceInt = price is int ? price : int.tryParse(price.toString()) ?? 0;

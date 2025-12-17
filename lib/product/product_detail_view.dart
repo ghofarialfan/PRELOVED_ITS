@@ -4,14 +4,14 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class ProductDetailView extends StatefulWidget {
   final String productId;
 
-  const ProductDetailView({Key? key, required this.productId}) : super(key: key);
+  const ProductDetailView({super.key, required this.productId});
 
   @override
   State<ProductDetailView> createState() => _ProductDetailViewState();
 }
 
 class _ProductDetailViewState extends State<ProductDetailView> {
-  static const String _storageBucketName = 'photo_url_pp';
+  static const String _storageBucketName = 'products';
 
   bool _loading = true;
   Map<String, dynamic>? _product;
@@ -28,17 +28,86 @@ class _ProductDetailViewState extends State<ProductDetailView> {
 
   String _getPublicImageUrl(String path) {
     if (path.startsWith('http')) return path;
-    return Supabase.instance.client.storage.from(_storageBucketName).getPublicUrl(path);
+    var normalized = path.trim();
+    normalized = normalized.replaceFirst(RegExp(r'^/+'), '');
+    if (!normalized.contains('/')) {
+      normalized = 'products/$normalized';
+    }
+    return Supabase.instance.client.storage.from(_storageBucketName).getPublicUrl(normalized);
   }
 
   Future<void> _loadProduct() async {
     try {
       final client = Supabase.instance.client;
-      final response = await client
+      var resp = await client
           .from('products')
-          .select('*, product_images(id, image_url, order_index, is_featured)')
+          .select('*')
           .eq('id', widget.productId)
-          .single();
+          .maybeSingle();
+
+      debugPrint('[_loadProduct] initial lookup productId=${widget.productId} response=$resp');
+
+      if (resp == null) {
+        final tryInt = int.tryParse(widget.productId);
+        if (tryInt != null) {
+          final resp2 = await client
+              .from('products')
+              .select('*, product_images(id, image_url, order_index, is_featured)')
+              .eq('id', tryInt)
+              .maybeSingle();
+          debugPrint('[_loadProduct] fallback lookup int id=$tryInt response=$resp2');
+          if (resp2 != null) resp = resp2;
+        }
+      }
+
+      if (resp == null) {
+        if (mounted) {
+          setState(() => _loading = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Produk tidak ditemukan (id: ${widget.productId})'))
+          );
+        }
+        return;
+      }
+
+      final data = Map<String, dynamic>.from(resp);
+
+      try {
+        final imagesRaw = data['product_images'];
+        if (imagesRaw != null && imagesRaw is List && imagesRaw.isNotEmpty) {
+          final imagesList = imagesRaw
+              .map((img) {
+                if (img is! Map) return null;
+                final mm = Map<String, dynamic>.from(img);
+                final path = mm['image_url'] ?? mm['imageUrl'];
+                if (path != null && path is String && !path.startsWith('http')) {
+                  try {
+                    mm['image_url'] = client.storage.from(_storageBucketName).getPublicUrl(path);
+                  } catch (e) {
+                    debugPrint('Error getting public URL: $e');
+                  }
+                }
+                return mm;
+              })
+              .where((img) => img != null)
+              .cast<Map<String, dynamic>>()
+              .toList();
+
+          imagesList.sort((a, b) => (a['order_index'] ?? 0).compareTo(b['order_index'] ?? 0));
+          data['product_images'] = imagesList;
+        }
+
+        final mainPath = data['image_url'] ?? data['imageUrl'];
+        if (mainPath != null && mainPath is String && !mainPath.startsWith('http')) {
+          try {
+            data['image_url'] = client.storage.from(_storageBucketName).getPublicUrl(mainPath);
+          } catch (e) {
+            debugPrint('Error getting main image URL: $e');
+          }
+        }
+      } catch (e) {
+        debugPrint('[_loadProduct] error converting image paths: $e');
+      }
 
       final reviews = await client
           .from('product_reviews')
@@ -49,36 +118,46 @@ class _ProductDetailViewState extends State<ProductDetailView> {
       int total = 0;
       if (reviews.isNotEmpty) {
         total = reviews.length;
-        final sum = reviews.fold<int>(0, (s, r) => s + (r['rating'] as int));
+        final sum = reviews.fold<int>(0, (s, r) => s + ((r['rating'] as int?) ?? 0));
         avg = sum / total;
       }
 
       List<Map<String, dynamic>> images = [];
-      if (response['product_images'] != null) {
-        images = List<Map<String, dynamic>>.from(response['product_images']);
+      final productImagesData = data['product_images'];
+      if (productImagesData != null && productImagesData is List) {
+        images = productImagesData
+            .map((m) {
+              if (m is! Map) return null;
+              final mm = Map<String, dynamic>.from(m);
+              final img = (mm['image_url'] ?? mm['imageUrl']) as String? ?? '';
+              mm['image_url'] = _getPublicImageUrl(img);
+              return mm;
+            })
+            .where((img) => img != null)
+            .cast<Map<String, dynamic>>()
+            .toList();
         images.sort((a, b) => (a['order_index'] ?? 0).compareTo(b['order_index'] ?? 0));
-        images = images.map((m) {
-          m['image_url'] = _getPublicImageUrl(m['image_url'] as String);
-          return m;
-        }).toList();
       }
 
-      setState(() {
-        _product = response;
-        _product!['average_rating'] = avg;
-        _product!['total_reviews'] = total;
-        _productImages = images;
-        if (_product!['size'] != null) {
-          _selectedSize = _product!['size'].toString();
-        }
-        _loading = false;
-      });
-
-      _checkFavorite();
-      _incrementViewCount();
-    } catch (e) {
-      setState(() => _loading = false);
       if (mounted) {
+        setState(() {
+          _product = data;
+          _product!['average_rating'] = avg;
+          _product!['total_reviews'] = total;
+          _productImages = images;
+          if (_product!['size'] != null) {
+            _selectedSize = _product!['size'].toString();
+          }
+          _loading = false;
+        });
+
+        _checkFavorite();
+        _incrementViewCount();
+      }
+    } catch (e) {
+      debugPrint('[_loadProduct] error: $e');
+      if (mounted) {
+        setState(() => _loading = false);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     }
@@ -103,38 +182,42 @@ class _ProductDetailViewState extends State<ProductDetailView> {
           .eq('user_id', user.id)
           .eq('product_id', widget.productId)
           .maybeSingle();
-      setState(() => _isFavorite = res != null);
+      if (mounted) {
+        setState(() => _isFavorite = res != null);
+      }
     } catch (_) {}
   }
 
   Future<void> _toggleFavorite() async {
+    final messenger = ScaffoldMessenger.of(context);
     try {
       final client = Supabase.instance.client;
       final user = client.auth.currentUser;
       if (user == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Silakan login terlebih dahulu')));
+        messenger.showSnackBar(const SnackBar(content: Text('Silakan login terlebih dahulu')));
         return;
       }
       if (_isFavorite) {
         await client.from('favorites').delete().eq('user_id', user.id).eq('product_id', widget.productId);
         setState(() => _isFavorite = false);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Dihapus dari favorit')));
+        messenger.showSnackBar(const SnackBar(content: Text('Dihapus dari favorit')));
       } else {
         await client.from('favorites').insert({'user_id': user.id, 'product_id': widget.productId});
         setState(() => _isFavorite = true);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ditambahkan ke favorit')));
+        messenger.showSnackBar(const SnackBar(content: Text('Ditambahkan ke favorit')));
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      messenger.showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
   Future<void> _addToCart() async {
+    final messenger = ScaffoldMessenger.of(context);
     try {
       final client = Supabase.instance.client;
       final user = client.auth.currentUser;
       if (user == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Silakan login terlebih dahulu')));
+        messenger.showSnackBar(const SnackBar(content: Text('Silakan login terlebih dahulu')));
         return;
       }
       final existing = await client
@@ -156,11 +239,9 @@ class _ProductDetailViewState extends State<ProductDetailView> {
           'selected_size': _selectedSize,
         });
       }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Produk ditambahkan ke keranjang'), backgroundColor: Colors.green));
-      }
+      messenger.showSnackBar(const SnackBar(content: Text('Produk ditambahkan ke keranjang'), backgroundColor: Colors.green));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      messenger.showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
@@ -263,11 +344,12 @@ class _ProductDetailViewState extends State<ProductDetailView> {
   }
 
   Future<void> _submitOffer(int offeredPrice) async {
+    final messenger = ScaffoldMessenger.of(context);
     try {
       final client = Supabase.instance.client;
       final user = client.auth.currentUser;
       if (user == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Silakan login terlebih dahulu')));
+        messenger.showSnackBar(const SnackBar(content: Text('Silakan login terlebih dahulu')));
         return;
       }
       final chatId = await _createOrGetChat();
@@ -295,9 +377,9 @@ class _ProductDetailViewState extends State<ProductDetailView> {
           'offer_id': offer['id'],
         });
       }
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nego terkirim')));
+      messenger.showSnackBar(const SnackBar(content: Text('Nego terkirim')));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      messenger.showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
@@ -344,6 +426,11 @@ class _ProductDetailViewState extends State<ProductDetailView> {
                                 _productImages[index]['image_url'],
                                 fit: BoxFit.cover,
                                 headers: const {'Cache-Control': 'no-cache'},
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Center(
+                                    child: Icon(Icons.broken_image, size: 64, color: Colors.grey[400]),
+                                  );
+                                },
                               );
                             },
                           ),
@@ -362,7 +449,7 @@ class _ProductDetailViewState extends State<ProductDetailView> {
                                     height: 8,
                                     decoration: BoxDecoration(
                                       shape: BoxShape.circle,
-                                      color: _currentImageIndex == index ? Colors.blue : Colors.white.withOpacity(0.5),
+                                      color: _currentImageIndex == index ? Colors.blue : Colors.white.withValues(alpha: 0.5),
                                     ),
                                   ),
                                 ),
@@ -384,117 +471,76 @@ class _ProductDetailViewState extends State<ProductDetailView> {
                     children: [
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), borderRadius: BorderRadius.circular(20)),
+                        decoration: BoxDecoration(color: Colors.blue.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
                         child: Text((_product!['category'] ?? '').toString(), style: TextStyle(fontSize: 12, color: Colors.blue[700], fontWeight: FontWeight.w600)),
                       ),
                       const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(color: _product!['condition'] == 'new' ? Colors.green.withOpacity(0.1) : Colors.orange.withOpacity(0.1), borderRadius: BorderRadius.circular(20)),
+                        decoration: BoxDecoration(color: _product!['condition'] == 'new' ? Colors.green.withValues(alpha: 0.1) : Colors.orange.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
                         child: Text(_product!['condition'] == 'new' ? 'Baru' : 'Bekas', style: TextStyle(fontSize: 12, color: _product!['condition'] == 'new' ? Colors.green[700] : Colors.orange[700], fontWeight: FontWeight.w600)),
                       ),
                     ],
                   ),
                   const SizedBox(height: 12),
-                  Text((_product!['name'] ?? 'Nama Produk').toString(), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, height: 1.3)),
-                  if (_product!['brand'] != null) ...[
-                    const SizedBox(height: 4),
-                    Text('Brand: ${_product!['brand']}', style: TextStyle(fontSize: 14, color: Colors.grey[600])),
-                  ],
-                  const SizedBox(height: 12),
+                  Text(
+                    _product!['name'] ?? '',
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
                   Row(
                     children: [
-                      const Icon(Icons.star, color: Colors.amber, size: 22),
-                      const SizedBox(width: 4),
-                      Text('${(_product!['average_rating'] ?? 0.0).toStringAsFixed(1)}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-                      const SizedBox(width: 4),
-                      Text('/5.0', style: TextStyle(fontSize: 14, color: Colors.grey[600])),
-                      const SizedBox(width: 8),
-                      Text('(${_product!['total_reviews'] ?? 0} ulasan)', style: TextStyle(fontSize: 14, color: Colors.grey[600])),
-                      const Spacer(),
-                      Icon(Icons.inventory_2_outlined, size: 18, color: Colors.grey[600]),
-                      const SizedBox(width: 4),
-                      Text('Stok: ${_product!['stock'] ?? 0}', style: TextStyle(fontSize: 14, color: Colors.grey[700], fontWeight: FontWeight.w500)),
+                      const Icon(Icons.star, size: 16, color: Colors.amber),
+                      const SizedBox(width: 6),
+                      Text((_product!['average_rating'] ?? 0.0).toStringAsFixed(1), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                      const SizedBox(width: 6),
+                      Text('(${_product!['total_reviews'] ?? 0})', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                     ],
                   ),
-                  const SizedBox(height: 20),
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.blue.withOpacity(0.1), Colors.blue.withOpacity(0.05)]), borderRadius: BorderRadius.circular(12)),
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      if (hasDiscount) ...[
-                        Row(children: [
-                          Text('Rp ${_formatPrice(_product!['price'])}', style: TextStyle(fontSize: 16, color: Colors.grey[600], decoration: TextDecoration.lineThrough)),
-                          const SizedBox(width: 8),
-                          Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(4)), child: Text('${_calculateDiscount()}%', style: const TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold))),
-                        ]),
-                        const SizedBox(height: 8),
-                      ],
-                      Row(children: [
-                        const Text('Harga:', style: TextStyle(fontSize: 16, color: Colors.black87)),
-                        const SizedBox(width: 8),
-                        Text('Rp ${_formatPrice(displayPrice)}', style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.blue)),
-                      ]),
-                    ]),
-                  ),
-                  const SizedBox(height: 24),
-                  if (_product!['size'] != null && _product!['size'].toString().isNotEmpty) ...[
-                    const Text('Ukuran', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 12),
-                    Container(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12), decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), border: Border.all(color: Colors.blue, width: 1), borderRadius: BorderRadius.circular(8)), child: Text(_product!['size'].toString(), style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.w600, fontSize: 14))),
-                    const SizedBox(height: 24),
+                  const SizedBox(height: 12),
+                  if (hasDiscount) ...[
+                    Text('Rp ${_formatPrice(_product!['price'])}', style: const TextStyle(fontSize: 14, color: Colors.grey, decoration: TextDecoration.lineThrough)),
+                    const SizedBox(height: 6),
                   ],
-                  const Text('Deskripsi Produk', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  Text((_product!['description'] ?? 'Tidak ada deskripsi').toString(), style: TextStyle(fontSize: 14, color: Colors.grey[700], height: 1.6), textAlign: TextAlign.justify),
-                  const SizedBox(height: 100),
+                  Text('Rp ${_formatPrice(displayPrice)}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blue)),
+                  const SizedBox(height: 12),
+                  Text((_product!['description'] ?? '').toString(), style: TextStyle(fontSize: 14, color: Colors.grey[800])),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: _addToCart,
+                          child: const Text('Tambah ke Keranjang'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: _buyNow,
+                        child: const Text('Beli Sekarang'),
+                      ),
+                      const SizedBox(width: 8),
+                      OutlinedButton(
+                        onPressed: _openNegotiate,
+                        child: const Text('Nego'),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
           ),
         ],
       ),
-      bottomNavigationBar: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.3), spreadRadius: 1, blurRadius: 10, offset: const Offset(0, -3))]),
-        child: SafeArea(
-          child: Row(children: [
-            Expanded(
-              child: ElevatedButton(
-                onPressed: _openNegotiate,
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.black87, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), elevation: 0),
-                child: const Text('Nego', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Container(
-              decoration: BoxDecoration(border: Border.all(color: Colors.blue, width: 2), borderRadius: BorderRadius.circular(12)),
-              child: IconButton(onPressed: _addToCart, icon: const Icon(Icons.shopping_cart_outlined, color: Colors.blue), padding: const EdgeInsets.all(12)),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: ElevatedButton(
-                onPressed: (_product!['stock'] ?? 0) > 0 ? _buyNow : null,
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, disabledBackgroundColor: Colors.grey, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), elevation: 0),
-                child: Text(((_product!['stock'] ?? 0) > 0) ? 'Beli' : 'Stok Habis', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
-              ),
-            ),
-          ]),
-        ),
-      ),
     );
-  }
-
-  int _calculateDiscount() {
-    if (_product!['discount_price'] == null) return 0;
-    final price = _product!['price'] as num;
-    final discountPrice = _product!['discount_price'] as num;
-    return (((price - discountPrice) / price) * 100).round();
   }
 
   String _formatPrice(dynamic price) {
     if (price == null) return '0';
     final priceInt = price is int ? price : int.tryParse(price.toString()) ?? 0;
-    return priceInt.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.');
+    return priceInt.toString().replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+      (Match m) => '${m[1]}.',
+    );
   }
 }

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+import 'start_page.dart';
 
 // pages
 import 'home_page.dart';
@@ -36,11 +39,17 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Preloved ITS',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF0051FF)),
         useMaterial3: true,
+        textTheme: GoogleFonts.nunitoSansTextTheme(),
+        primaryColor: const Color(0xFF0051FF),
       ),
+
+      // ENTRY POINT UTAMA
       home: const AuthGate(),
       routes: {
+        '/start': (context) => const StartPage(),
+
         '/home': (context) => const HomePage(),
         '/profile': (context) => const ProfilePage(),
         '/orders': (context) => const OrdersPage(),
@@ -61,16 +70,16 @@ class MyApp extends StatelessWidget {
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
+  /// Untuk handle link reset password:
+  /// http://localhost:xxxx/?code=...#/reset-new
   Future<void> _consumeRecoveryCodeIfAny() async {
-    // contoh:
-    // http://localhost:xxxx/?code=XXXXX#/reset-new
     final code = Uri.base.queryParameters['code'];
     if (code == null || code.isEmpty) return;
 
     try {
       await Supabase.instance.client.auth.exchangeCodeForSession(code);
     } catch (_) {
-      // biarkan halaman reset password yang handle error
+      // kalau gagal, biarkan saja – halaman reset akan handle error
     }
   }
 
@@ -84,17 +93,20 @@ class AuthGate extends StatelessWidget {
           builder: (context, snapshot) {
             final event = snapshot.data?.event;
 
+            // KHUSUS reset password
             if (event == AuthChangeEvent.passwordRecovery) {
               return const ResetNewPasswordPage();
             }
 
             final session = Supabase.instance.client.auth.currentSession;
 
+            // Sudah login → Home
             if (session != null) {
               return const HomePage();
             }
 
-            return const LoginEmailPage();
+            // Belum login → Start Page (landing)
+            return const StartPage();
           },
         );
       },

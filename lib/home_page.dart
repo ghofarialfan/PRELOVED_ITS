@@ -21,27 +21,118 @@ class _HomePageState extends State<HomePage> {
   Future<void> _load() async {
     try {
       final client = Supabase.instance.client;
-      final cats = await client.from('categories').select().limit(12);
-      final featured = await client
-          .from('products')
-          .select()
-          .order('updated_at', ascending: false)
-          .limit(6);
-      final news = await client
-          .from('products')
-          .select()
-          .eq('is_new', true)
-          .order('created_at', ascending: false)
-          .limit(6);
-      final forYou = await client
-          .from('products')
-          .select()
-          .order('view_count', ascending: false);
+      List<Map<String, dynamic>> catsList = [];
+      List<dynamic> featuredRows = const [];
+      List<dynamic> newsRows = const [];
+      List<dynamic> forYouRows = const [];
+
+      try {
+        final cats = await client.from('categories').select().limit(12);
+        catsList = (cats as List<dynamic>).cast<Map<String, dynamic>>();
+      } catch (_) {}
+
+      try {
+        featuredRows = await client
+            .from('products')
+            .select('*')
+            .limit(6);
+      } catch (e) {
+        debugPrint('Load featured error: $e');
+      }
+
+      try {
+        newsRows = await client
+            .from('products')
+            .select('*')
+            .limit(20);
+      } catch (e) {
+        debugPrint('Load new products error: $e');
+      }
+
+      try {
+        forYouRows = await client
+            .from('products')
+            .select('*')
+            .limit(20);
+      } catch (e) {
+        debugPrint('Load for you error: $e');
+      }
+
+      Future<List<Map<String, dynamic>>> withPublicImageAsync(List<dynamic> rows) async {
+        final maps = rows.map((e) => Map<String, dynamic>.from(e as Map<String, dynamic>)).toList();
+        final ids = maps.map((m) => (m['id'] ?? '').toString()).where((id) => id.isNotEmpty).toList();
+        if (ids.isEmpty) return maps;
+        try {
+          final grouped = <String, String>{};
+          final coverIdByProduct = <String, String>{};
+          for (final m in maps) {
+            final pid = (m['id'] ?? '').toString();
+            final cid = (m['product_image_id'] ?? '').toString();
+            if (pid.isNotEmpty && cid.isNotEmpty) coverIdByProduct[pid] = cid;
+          }
+          if (coverIdByProduct.isNotEmpty) {
+           final coverIds = coverIdByProduct.values.toList();
+           final coverRows = await client
+               .from('product_images')
+               .select('id, image_url')
+                .filter('id', 'in', '(${coverIds.map((e) => '"$e"').join(",")})');
+            final byId = <String, String>{};
+            for (final row in (coverRows as List<dynamic>)) {
+              final id = (row as Map)['id'].toString();
+              final path = (row['image_url'] ?? '').toString();
+              if (id.isNotEmpty && path.isNotEmpty) byId[id] = path;
+            }
+            coverIdByProduct.forEach((pid, cid) {
+              final path = byId[cid];
+              if (path != null && path.isNotEmpty) grouped[pid] = path;
+            });
+          }
+          final missing = ids.where((pid) => !grouped.containsKey(pid));
+          for (final pid in missing) {
+            final img = await client
+                .from('product_images')
+                .select('image_url, order_index')
+                .eq('product_id', pid)
+                .order('order_index', ascending: true)
+                .limit(1)
+                .maybeSingle();
+            final path = (img?['image_url'] ?? '').toString();
+            if (path.isNotEmpty) grouped[pid] = path;
+          }
+          for (final m in maps) {
+            final pid = (m['id'] ?? '').toString();
+            var path = grouped[pid] ?? '';
+            if (path.isNotEmpty) {
+              if (path.startsWith('http')) {
+                m['image_url'] = path;
+              } else {
+                var normalized = path.trim();
+                normalized = normalized.replaceFirst(RegExp(r'^/+'), '');
+                if (!normalized.contains('/')) {
+                  normalized = 'products/$normalized';
+                }
+                m['image_url'] = client.storage.from('products').getPublicUrl(normalized);
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('Attach images error: $e');
+        }
+        return maps;
+      }
+
+      final featuredMapped = await withPublicImageAsync(featuredRows);
+      final newsMapped = await withPublicImageAsync(newsRows);
+      final forYouMapped = await withPublicImageAsync(forYouRows);
+      debugPrint('Featured image_url sample: ${featuredMapped.take(3).map((m) => m['image_url']).toList()}');
+      debugPrint('News image_url sample: ${newsMapped.take(3).map((m) => m['image_url']).toList()}');
+
       setState(() {
-        _categories = (cats as List<dynamic>).cast<Map<String, dynamic>>();
-        _featured = (featured as List<dynamic>).cast<Map<String, dynamic>>();
-        _newProducts = (news as List<dynamic>).cast<Map<String, dynamic>>();
-        _forYou = (forYou as List<dynamic>).cast<Map<String, dynamic>>();
+        _categories = catsList;
+        _featured = featuredMapped;
+        _newProducts = newsMapped.where((m) => (m['is_new'] ?? false) == true).take(6).toList();
+        forYouMapped.sort((a, b) => ((b['view_count'] ?? 0) as int).compareTo((a['view_count'] ?? 0) as int));
+        _forYou = forYouMapped.take(12).toList();
         _loading = false;
       });
       debugPrint('Loaded categories: ${_categories.length}, featured: ${_featured.length}, new: ${_newProducts.length}, forYou: ${_forYou.length}');
