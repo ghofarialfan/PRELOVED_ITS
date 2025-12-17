@@ -8,7 +8,7 @@ import '../Product/product_detail_view.dart';
 class ProductsPage extends StatefulWidget {
   final String? category;
 
-  const ProductsPage({Key? key, this.category}) : super(key: key);
+  const ProductsPage({super.key, this.category});
 
   @override
   State<ProductsPage> createState() => _ProductsPageState();
@@ -20,7 +20,7 @@ class _ProductsPageState extends State<ProductsPage> {
   bool _loading = true;
   String _selectedCategory = 'Semua';
   
-  static const String _storageBucketName = 'photo_url_pp'; 
+  static const String _storageBucketName = 'products';
   
   final List<String> _categories = [
     'Semua', 'Elektronik', 'Fashion Pria', 'Fashion Wanita', 
@@ -46,19 +46,13 @@ class _ProductsPageState extends State<ProductsPage> {
       
       final response = await client
           .from('products')
-          .select('''
-            *,
-            product_images!inner(image_url, is_featured, order_index)
-          ''')
+          .select('*')
           .order('created_at', ascending: false);
 
       final productsList = <Product>[];
       
       // Response dari Supabase selalu List
       for (var item in response) {
-        // Cek tipe dengan benar
-        if (item is! Map<String, dynamic>) continue;
-        
         final productMap = Map<String, dynamic>.from(item);
         
         // Proses Gambar: Mengubah Path Relatif menjadi URL Lengkap
@@ -278,7 +272,7 @@ class _ProductsPageState extends State<ProductsPage> {
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -409,7 +403,7 @@ class _ProductsPageState extends State<ProductsPage> {
                         vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.blue.withOpacity(0.1),
+                        color: Colors.blue.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
@@ -446,7 +440,7 @@ class _ProductsPageState extends State<ProductsPage> {
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          '${product.rating.toStringAsFixed(1)}',
+                          product.rating.toStringAsFixed(1),
                           style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,

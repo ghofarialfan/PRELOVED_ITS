@@ -1,10 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'nego_page.dart';
-import 'chat_page.dart';
-import 'chat_list_page.dart';
-
 import 'home_page.dart';
 import 'profile_page.dart';
 import 'orders_page.dart';
@@ -20,7 +16,6 @@ import 'auth/reset_new_password_page.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // PAKAI DEV CONFIG LANGSUNG (biar tidak 401 Invalid API key)
   const supabaseUrl = 'https://qasmoyqdipdwngghboob.supabase.co';
   const supabaseAnonKey =
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFhc21veXFkaXBkd25nZ2hib29iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQzMzE4MjMsImV4cCI6MjA3OTkwNzgyM30.r-G27SvnEleAB03l9cGr64nuuCurvAcpX4aR9SjWGzY';
@@ -71,15 +66,12 @@ class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
   Future<void> _consumeRecoveryCodeIfAny() async {
-    // 🔥 Ini penting untuk URL model:
-    // http://localhost:32929/?code=XXXX#/reset-new
     final code = Uri.base.queryParameters['code'];
     if (code == null || code.isEmpty) return;
 
     try {
       await Supabase.instance.client.auth.exchangeCodeForSession(code);
     } catch (_) {
-      // kalau gagal, biarkan page reset kasih pesan yang jelas
     }
   }
 
@@ -93,7 +85,6 @@ class AuthGate extends StatelessWidget {
           builder: (context, snapshot) {
             final event = snapshot.data?.event;
 
-            // ✅ kalau user datang dari link reset password
             if (event == AuthChangeEvent.passwordRecovery) {
               return const ResetNewPasswordPage();
             }
