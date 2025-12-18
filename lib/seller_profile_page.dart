@@ -2,11 +2,14 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-class SellerProfilePage extends StatefulWidget {
-  /// ownerId = auth.users.id (seller)
-  final String ownerId;
+// ✅ FIX: dari widgets -> product folder
+import '../product/product_detail_view.dart';
 
-  const SellerProfilePage({super.key, required this.ownerId});
+class SellerProfilePage extends StatefulWidget {
+  /// sellerId = sellers.id
+  final String sellerId;
+
+  const SellerProfilePage({super.key, required this.sellerId});
 
   @override
   State<SellerProfilePage> createState() => _SellerProfilePageState();
@@ -15,7 +18,6 @@ class SellerProfilePage extends StatefulWidget {
 class _SellerProfilePageState extends State<SellerProfilePage> {
   final _client = Supabase.instance.client;
 
-  // ===== UI colors (sesuai figma kamu) =====
   static const primaryBlue = Color(0xFF2563FF);
   static const bgSoft = Color(0xFFF8FAFF);
   static const pillBg = Color(0xFFE9F0FF);
@@ -23,7 +25,7 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
   bool _loading = true;
   String? _error;
 
-  Map<String, dynamic>? _store;
+  Map<String, dynamic>? _seller;
   List<Map<String, dynamic>> _products = [];
   List<Map<String, dynamic>> _categories = [];
   List<Map<String, dynamic>> _reviews = [];
@@ -37,6 +39,21 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
     _loadAll();
   }
 
+  // ✅ FUNGSI BARU: Mendapatkan URL publik dari Supabase Storage
+  // Berdasarkan screenshot storage kamu, path di bucket 'products' diawali folder 'products/'
+  String _getPublicUrl(String path) {
+    if (path.isEmpty) return '';
+    if (path.startsWith('http')) return path;
+
+    String finalPath = path;
+    // Jika di database cuma nama file, tambahkan folder products/ sesuai screenshot storage
+    if (!path.contains('/')) {
+      finalPath = 'products/$path';
+    }
+
+    return _client.storage.from('products').getPublicUrl(finalPath);
+  }
+
   Future<void> _loadAll() async {
     setState(() {
       _loading = true;
@@ -44,34 +61,34 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
     });
 
     try {
-      // 1) store
-      final storeRes = await _client
-          .from('stores')
-          .select('id, owner_id, name, username, bio, location, photo_url')
-          .eq('owner_id', widget.ownerId)
+      final sellerRes = await _client
+          .from('sellers')
+          .select(
+            'id, name, username, description, location, photo_url, created_at',
+          )
+          .eq('id', widget.sellerId)
           .maybeSingle();
 
-      if (storeRes == null) {
+      if (sellerRes == null) {
         throw Exception(
-          'Store untuk owner_id ${widget.ownerId} belum ada. Insert dulu ke tabel stores.',
+          'Seller dengan id ${widget.sellerId} tidak ditemukan di tabel sellers.',
         );
       }
 
-      // 2) products + join category name
       final prodRes = await _client
           .from('products')
           .select(
-            'id, name, price, discount_price, created_at, seller_id, category_id, category:categories(id,name)',
+            'id, name, price, discount_price, created_at, seller_id, category_id, '
+            'category:categories(id,name)',
           )
-          .eq('seller_id', widget.ownerId)
+          .eq('seller_id', widget.sellerId)
           .order('created_at', ascending: false);
 
       final products = (prodRes as List)
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
 
-      // 3) primary images (bulk)
-      final productIds = products.map((p) => p['id'] as String).toList();
+      final productIds = products.map((p) => p['id'].toString()).toList();
       final Map<String, String> primaryImageByProduct = {};
 
       if (productIds.isNotEmpty) {
@@ -87,7 +104,9 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
           final pid = (m['product_id'] ?? '').toString();
           primaryImageByProduct.putIfAbsent(
             pid,
-            () => (m['image_url'] ?? '').toString(),
+            () => _getPublicUrl(
+              (m['image_url'] ?? '').toString(),
+            ), // ✅ Gunakan Public URL
           );
         }
       }
@@ -97,7 +116,6 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
         p['primary_image_url'] = primaryImageByProduct[pid] ?? '';
       }
 
-      // 4) categories dari produk seller (distinct + count)
       final Map<String, Map<String, dynamic>> catMap = {};
       for (final p in products) {
         final cat = p['category'];
@@ -111,17 +129,16 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
       final categories = catMap.values.toList()
         ..sort((a, b) => (a['name'] as String).compareTo(b['name'] as String));
 
-      // 5) reviews seller (ambil dari semua product_ids seller)
       double avg = 0;
       int count = 0;
       final List<Map<String, dynamic>> reviews = [];
 
       if (productIds.isNotEmpty) {
-        // ambil review + join users untuk avatar/nama (kalau FK ada)
         final revRes = await _client
             .from('product_reviews')
             .select(
-              'id, product_id, rating, comment, created_at, image_url, user:users(id, full_name, username, profile_image_url, photo_url)',
+              'id, product_id, rating, comment, created_at, image_url, '
+              'user:users(id, full_name, username, profile_image_url, photo_url)',
             )
             .inFilter('product_id', productIds)
             .order('created_at', ascending: false);
@@ -144,7 +161,7 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
       }
 
       setState(() {
-        _store = Map<String, dynamic>.from(storeRes);
+        _seller = Map<String, dynamic>.from(sellerRes);
         _products = products;
         _categories = categories;
         _reviews = reviews;
@@ -241,11 +258,12 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
       );
     }
 
-    final store = _store!;
-    final storeName = (store['name'] ?? 'Toko').toString();
-    final username = (store['username'] ?? 'Penjual').toString();
-    final location = (store['location'] ?? '').toString();
-    final photoUrl = (store['photo_url'] ?? '').toString();
+    final seller = _seller!;
+    final sellerName = (seller['name'] ?? 'Penjual').toString();
+    final username = (seller['username'] ?? '').toString();
+    final location = (seller['location'] ?? '').toString();
+    final desc = (seller['description'] ?? '').toString();
+    final photoUrl = (seller['photo_url'] ?? '').toString();
 
     return DefaultTabController(
       length: 3,
@@ -256,16 +274,14 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
             icon: const Icon(CupertinoIcons.back),
             onPressed: () => Navigator.pop(context),
           ),
-          title: Text(storeName),
+          title: Text(sellerName),
           centerTitle: true,
           backgroundColor: Colors.white,
           foregroundColor: Colors.black,
           elevation: 0,
         ),
-
         body: Column(
           children: [
-            // ===== HEADER CARD (sesuai figma) =====
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
               child: Container(
@@ -283,7 +299,6 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
                 ),
                 child: Column(
                   children: [
-                    // avatar
                     Container(
                       width: 86,
                       height: 86,
@@ -309,25 +324,31 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
                             ),
                     ),
                     const SizedBox(height: 10),
-
                     Text(
-                      username,
+                      username.isNotEmpty ? '@$username' : sellerName,
                       style: const TextStyle(
                         fontWeight: FontWeight.w800,
                         fontSize: 16,
                       ),
                     ),
                     const SizedBox(height: 4),
-
+                    if (desc.isNotEmpty)
+                      Text(
+                        desc,
+                        style: const TextStyle(
+                          color: Colors.black54,
+                          fontSize: 12,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    const SizedBox(height: 4),
                     Text(
                       location.isNotEmpty ? location : '—',
                       style: const TextStyle(
                         color: Colors.black54,
                         fontSize: 12,
                       ),
-                      textAlign: TextAlign.center,
                     ),
-
                     const SizedBox(height: 2),
                     Text(
                       _reviewCount > 0
@@ -338,10 +359,7 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
                         fontSize: 12,
                       ),
                     ),
-
                     const SizedBox(height: 12),
-
-                    // button
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
@@ -365,10 +383,7 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
                         child: const Text('Chat Penjual'),
                       ),
                     ),
-
                     const SizedBox(height: 12),
-
-                    // pill tabs
                     Container(
                       height: 42,
                       decoration: BoxDecoration(
@@ -397,8 +412,6 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
                 ),
               ),
             ),
-
-            // ===== TAB CONTENT =====
             Expanded(
               child: TabBarView(
                 children: [_productsTab(), _categoriesTab(), _reviewsTab()],
@@ -410,13 +423,8 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
     );
   }
 
-  // ============================
-  // TAB: PRODUK (grid)
-  // ============================
   Widget _productsTab() {
-    if (_products.isEmpty) {
-      return const Center(child: Text('Belum ada produk'));
-    }
+    if (_products.isEmpty) return const Center(child: Text('Belum ada produk'));
 
     return GridView.builder(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
@@ -430,85 +438,90 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
       itemBuilder: (context, i) {
         final p = _products[i];
         final name = (p['name'] ?? '').toString();
-
         final num price = (p['price'] ?? 0) as num;
         final num? discount = p['discount_price'] == null
             ? null
             : (p['discount_price'] as num);
         final num shown = (discount != null && discount > 0) ? discount : price;
-
         final img = (p['primary_image_url'] ?? '').toString();
 
-        return Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 12,
-                offset: const Offset(0, 6),
+        return InkWell(
+          onTap: () {
+            final pid = p['id'].toString();
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ProductDetailView(productId: pid),
               ),
-            ],
-          ),
-          padding: const EdgeInsets.all(10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              AspectRatio(
-                aspectRatio: 1.2,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: img.isNotEmpty
-                      ? Image.network(
-                          img,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(
+            );
+          },
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 12,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.all(10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AspectRatio(
+                  aspectRatio: 1.2,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: img.isNotEmpty
+                        ? Image.network(
+                            img,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              color: pillBg,
+                              child: const Icon(
+                                CupertinoIcons.photo,
+                                color: primaryBlue,
+                              ),
+                            ),
+                          )
+                        : Container(
                             color: pillBg,
                             child: const Icon(
                               CupertinoIcons.photo,
                               color: primaryBlue,
                             ),
                           ),
-                        )
-                      : Container(
-                          color: pillBg,
-                          child: const Icon(
-                            CupertinoIcons.photo,
-                            color: primaryBlue,
-                          ),
-                        ),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                _formatRupiah(shown),
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  color: primaryBlue,
+                const SizedBox(height: 8),
+                Text(
+                  name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
-              ),
-            ],
+                const SizedBox(height: 6),
+                Text(
+                  _formatRupiah(shown),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: primaryBlue,
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },
     );
   }
 
-  // ============================
-  // TAB: KATEGORI (list seperti figma)
-  // ============================
   Widget _categoriesTab() {
-    if (_categories.isEmpty) {
+    if (_categories.isEmpty)
       return const Center(child: Text('Belum ada kategori'));
-    }
 
     IconData iconFor(String name) {
       final n = name.toLowerCase();
@@ -581,9 +594,6 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
     );
   }
 
-  // ============================
-  // TAB: ULASAN (list seperti figma)
-  // ============================
   Widget _reviewsTab() {
     if (_reviews.isEmpty) {
       return Center(
@@ -618,12 +628,10 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
         final user = r['user'];
         if (user is Map) {
           final fullName = (user['full_name'] ?? '').toString();
-          final username = (user['username'] ?? '').toString();
+          final uname = (user['username'] ?? '').toString();
           name = fullName.isNotEmpty
               ? fullName
-              : (username.isNotEmpty ? username : 'User');
-
-          // beberapa tabel user kamu punya profile_image_url / photo_url
+              : (uname.isNotEmpty ? uname : 'User');
           avatar = (user['profile_image_url'] ?? user['photo_url'] ?? '')
               .toString();
         }
@@ -644,7 +652,6 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // avatar
               Container(
                 width: 44,
                 height: 44,
@@ -668,8 +675,6 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
                       ),
               ),
               const SizedBox(width: 12),
-
-              // content
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
