@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'product/product_detail_view.dart';
 import 'services/products_page.dart';
+import 'chat_list_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -374,6 +375,17 @@ class _HomePageState extends State<HomePage> {
                       Text('Selamat Datang, $_displayName', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)),
                     ],
                   ),
+                ),
+                IconButton(
+                  icon: const Icon(CupertinoIcons.chat_bubble_text_fill, color: primaryBlue),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const ChatListPage(),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),

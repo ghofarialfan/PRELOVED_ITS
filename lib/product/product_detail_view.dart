@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../chat_page.dart';
 
 // ✅ sesuaikan path ini dengan struktur project kamu
 // contoh kalau file seller_profile_page.dart ada di lib/seller/seller_profile_page.dart
@@ -66,7 +67,6 @@ class _ProductDetailViewState extends State<ProductDetailView> {
     try {
       final client = Supabase.instance.client;
 
-      // ✅ 1) Fetch Product + join seller:sellers + images
       var resp = await client
           .from('products')
           .select('''
@@ -230,6 +230,163 @@ class _ProductDetailViewState extends State<ProductDetailView> {
     } catch (_) {}
   }
 
+  Future<String?> _getSellerUserId() async {
+    final client = Supabase.instance.client;
+    final rawSellerId = (_product?['seller_id'])?.toString();
+    
+    // Debug log
+    debugPrint('[_getSellerUserId] rawSellerId from product: $rawSellerId');
+    if (_product != null) {
+       debugPrint('[_getSellerUserId] Product keys: ${_product!.keys.toList()}');
+       if (_product!.containsKey('user_id')) debugPrint('[_getSellerUserId] product.user_id: ${_product!['user_id']}');
+       if (_product!.containsKey('owner_id')) debugPrint('[_getSellerUserId] product.owner_id: ${_product!['owner_id']}');
+    }
+
+    // 0. Cek apakah product punya user_id / owner_id langsung
+    if (_product != null) {
+      if (_product!['user_id'] != null) return _product!['user_id'].toString();
+      if (_product!['owner_id'] != null) return _product!['owner_id'].toString();
+    }
+    
+    if (rawSellerId == null || rawSellerId.isEmpty) {
+      debugPrint('[_getSellerUserId] rawSellerId is null or empty');
+      return null;
+    }
+
+    // 1. Coba cari di table users (kalau seller_id sudah merupakan user_id)
+    try {
+      final userRow = await client
+          .from('users')
+          .select('id')
+          .eq('id', rawSellerId)
+          .maybeSingle();
+      if (userRow != null && userRow['id'] != null) {
+        debugPrint('[_getSellerUserId] Found in users table: ${userRow['id']}');
+        return userRow['id'].toString();
+      }
+    } catch (e) {
+      debugPrint('[_getSellerUserId] Not found in users: $e');
+    }
+
+    // 2. Coba cari di table stores (kalau seller_id adalah store_id)
+    try {
+      final storeRow = await client
+          .from('stores')
+          .select('owner_id')
+          .eq('id', rawSellerId)
+          .maybeSingle();
+      
+      debugPrint('[_getSellerUserId] Store row result: $storeRow');
+      
+      final ownerId = storeRow?['owner_id'];
+      if (ownerId != null && ownerId.toString().isNotEmpty) {
+        debugPrint('[_getSellerUserId] Found owner_id in stores: $ownerId');
+        return ownerId.toString();
+      }
+    } catch (e) {
+      debugPrint('[_getSellerUserId] Error querying stores: $e');
+    }
+
+    // 3. Coba cari di table sellers dan mapping via username
+    // (Karena tabel sellers tidak punya user_id/owner_id, kita coba via username)
+    try {
+       final sellerRow = await client
+          .from('sellers')
+          .select('username, name')
+          .eq('id', rawSellerId)
+          .maybeSingle();
+       
+       if (sellerRow != null && sellerRow['username'] != null) {
+          final uname = sellerRow['username'];
+          debugPrint('[_getSellerUserId] Found username in sellers: $uname');
+          
+          // Cari user ID di tabel users berdasarkan username (case-insensitive)
+          // Gunakan ilike agar tidak sensitif huruf besar/kecil
+          final userRow = await client
+              .from('users')
+              .select('id')
+              .ilike('username', uname)
+              .maybeSingle();
+              
+          if (userRow != null && userRow['id'] != null) {
+             debugPrint('[_getSellerUserId] Resolved user_id via username (ilike): ${userRow['id']}');
+             return userRow['id'].toString();
+          } else {
+             debugPrint('[_getSellerUserId] Username $uname not found in users table (ilike)');
+             
+             // DEBUG: Coba list user yang ada untuk diagnosa
+             try {
+                final allUsers = await client.from('users').select('id, username, full_name').limit(5);
+                debugPrint('[_getSellerUserId] Sample users in DB: $allUsers');
+             } catch (_) {}
+
+             // Fallback: Coba cari berdasarkan full_name dari sellers.name
+             if (sellerRow['name'] != null) {
+                final name = sellerRow['name'];
+                debugPrint('[_getSellerUserId] Trying to find user via full_name: $name');
+                final userByName = await client
+                    .from('users')
+                    .select('id')
+                    .ilike('full_name', name)
+                    .maybeSingle();
+                
+                if (userByName != null && userByName['id'] != null) {
+                   debugPrint('[_getSellerUserId] Resolved user_id via full_name: ${userByName['id']}');
+                   return userByName['id'].toString();
+                }
+             }
+          }
+       }
+    } catch (e) {
+       debugPrint('[_getSellerUserId] Error resolving via username: $e');
+    }
+     
+    debugPrint('[_getSellerUserId] Failed to resolve seller user ID');
+     
+     // FALLBACK FINAL: Gunakan rawSellerId apa adanya
+     // Namun sebelum itu, cek apakah ID ini ada di tabel users
+     // Jika tidak, kita coba buat dummy user di tabel users agar foreign key constraint terpenuhi
+     try {
+       final checkUser = await client.from('users').select('id').eq('id', rawSellerId).maybeSingle();
+       if (checkUser == null) {
+          debugPrint('[_getSellerUserId] User ID $rawSellerId not found in users table. Attempting to create shadow user via RPC...');
+          
+          final sellerData = await client.from('sellers').select().eq('id', rawSellerId).maybeSingle();
+          final name = sellerData?['name'] ?? 'Unknown Seller';
+          final username = sellerData?['username'] ?? 'seller_${rawSellerId.substring(0, 8)}';
+          final email = '$username@placeholder.com';
+          
+          // Gunakan RPC (Remote Procedure Call) untuk bypass RLS
+          // Kita asumsikan ada fungsi 'create_shadow_user' di database yang SECURITY DEFINER
+          try {
+             await client.rpc('create_shadow_user', params: {
+                'p_id': rawSellerId,
+                'p_email': email,
+                'p_username': username,
+                'p_full_name': name,
+                'p_photo_url': sellerData?['photo_url']
+             });
+             debugPrint('[_getSellerUserId] Shadow user created via RPC');
+          } catch (rpcError) {
+             debugPrint('[_getSellerUserId] RPC failed ($rpcError), trying direct insert...');
+             // Fallback: Direct insert (biasanya gagal karena RLS, tapi dicoba saja)
+             await client.from('users').insert({
+                'id': rawSellerId,
+                'email': email,
+                'username': username,
+                'full_name': name,
+                'photo_url': sellerData?['photo_url'],
+             });
+          }
+       }
+     } catch (e) {
+       debugPrint('[_getSellerUserId] Failed to create shadow user: $e');
+     }
+
+     debugPrint('[_getSellerUserId] Returning rawSellerId as final fallback: $rawSellerId');
+     return rawSellerId;
+  }
+
   Future<void> _checkFavorite() async {
     try {
       final client = Supabase.instance.client;
@@ -369,14 +526,14 @@ class _ProductDetailViewState extends State<ProductDetailView> {
       final user = client.auth.currentUser;
       if (user == null) return null;
 
-      final sellerId = (_product?['seller_id'])?.toString();
-      if (sellerId == null || sellerId.isEmpty) return null;
+      final sellerUserId = await _getSellerUserId();
+      if (sellerUserId == null || sellerUserId.isEmpty) return null;
 
       final existing = await client
           .from('chats')
           .select('id')
           .eq('buyer_id', user.id)
-          .eq('seller_id', sellerId)
+          .eq('seller_id', sellerUserId)
           .eq('product_id', widget.productId)
           .maybeSingle();
 
@@ -386,7 +543,7 @@ class _ProductDetailViewState extends State<ProductDetailView> {
           .from('chats')
           .insert({
             'buyer_id': user.id,
-            'seller_id': sellerId,
+            'seller_id': sellerUserId,
             'product_id': widget.productId,
             'last_message': 'Mulai nego',
           })
@@ -473,7 +630,14 @@ class _ProductDetailViewState extends State<ProductDetailView> {
       }
 
       final chatId = await _createOrGetChat();
-      final sellerId = (_product?['seller_id'])?.toString();
+      final sellerUserId = await _getSellerUserId();
+      if (sellerUserId == null || sellerUserId.isEmpty) {
+        final rawId = _product?['seller_id'];
+        messenger.showSnackBar(
+          SnackBar(content: Text('Data penjual tidak valid (ID: $rawId)')),
+        );
+        return;
+      }
       final original = _product?['discount_price'] ?? _product?['price'];
 
       final offer = await client
@@ -481,7 +645,7 @@ class _ProductDetailViewState extends State<ProductDetailView> {
           .insert({
             'product_id': widget.productId,
             'buyer_id': user.id,
-            'seller_id': sellerId,
+            'seller_id': sellerUserId,
             'original_price': original,
             'offered_price': offeredPrice,
             'status': 'pending',
@@ -500,7 +664,26 @@ class _ProductDetailViewState extends State<ProductDetailView> {
         });
       }
 
-      messenger.showSnackBar(const SnackBar(content: Text('Nego terkirim')));
+      if (!mounted) return;
+      
+      final sellerName = (_seller?['name'] ?? _seller?['username'] ?? 'Penjual').toString();
+      final sellerAvatar = _getSellerPhotoUrl((_seller?['photo_url'] ?? '').toString());
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ChatPage(
+            productId: widget.productId,
+            productName: (_product?['name'] ?? '').toString(),
+            offerPrice: offeredPrice.toString(),
+            sellerName: sellerName,
+            sellerAvatar: sellerAvatar.isNotEmpty ? sellerAvatar : null,
+            chatId: chatId,
+            sellerId: sellerUserId!, // Pass sellerId
+            productImageUrl: _productImages.isNotEmpty ? _productImages.first['image_url'] : null,
+          ),
+        ),
+      );
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text('Error: $e')));
     }

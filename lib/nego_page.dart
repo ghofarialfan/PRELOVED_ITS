@@ -6,6 +6,9 @@ class NegoPage extends StatefulWidget {
   final String productName;
   final int productPrice;
   final String productImage;
+  final String sellerName;
+  final String? sellerAvatar;
+  final String sellerId; // Add sellerId
 
   const NegoPage({
     super.key,
@@ -13,6 +16,9 @@ class NegoPage extends StatefulWidget {
     required this.productName,
     required this.productPrice,
     required this.productImage,
+    required this.sellerName,
+    this.sellerAvatar,
+    required this.sellerId,
   });
 
   @override
@@ -130,6 +136,10 @@ class _NegoPageState extends State<NegoPage> {
                           productId: widget.productId,
                           productName: widget.productName,
                           offerPrice: hargaController.text,
+                          sellerName: widget.sellerName,
+                          sellerAvatar: widget.sellerAvatar,
+                          sellerId: widget.sellerId,
+                          productImageUrl: widget.productImage,
                         ),
                       ),
                     );
