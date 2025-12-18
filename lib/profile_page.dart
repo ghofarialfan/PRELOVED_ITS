@@ -43,14 +43,23 @@ class _ProfilePageState extends State<ProfilePage> {
 
       // ambil dari DB dulu
       final dbName = (res?['full_name'] ?? '').toString().trim();
-      final dbPhoto = (res?['photo_url'] ?? res?['avatar_url'] ?? '').toString().trim();
+      final dbPhoto = (res?['photo_url'] ?? res?['avatar_url'] ?? '')
+          .toString()
+          .trim();
 
       // fallback dari metadata auth
       final meta = user.userMetadata ?? {};
       final metaName =
-          (meta['full_name'] ?? meta['name'] ?? user.email?.split('@').first ?? '').toString().trim();
+          (meta['full_name'] ??
+                  meta['name'] ??
+                  user.email?.split('@').first ??
+                  '')
+              .toString()
+              .trim();
       final metaPhoto =
-          (meta['photo_url'] ?? meta['avatar_url'] ?? meta['picture'] ?? '').toString().trim();
+          (meta['photo_url'] ?? meta['avatar_url'] ?? meta['picture'] ?? '')
+              .toString()
+              .trim();
 
       final finalName = dbName.isNotEmpty ? dbName : metaName;
       final finalPhoto = dbPhoto.isNotEmpty ? dbPhoto : metaPhoto;
@@ -105,9 +114,9 @@ class _ProfilePageState extends State<ProfilePage> {
       Navigator.pushNamedAndRemoveUntil(context, '/login', (r) => false);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Gagal logout: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Gagal logout: $e')));
     }
   }
 
@@ -159,24 +168,24 @@ class _ProfilePageState extends State<ProfilePage> {
                         child: _loading
                             ? const Center(child: CupertinoActivityIndicator())
                             : (_avatarUrl == null || _avatarUrl!.isEmpty)
-                                ? const Center(
+                            ? const Center(
+                                child: Icon(
+                                  CupertinoIcons.person_fill,
+                                  color: Color(0xFF2563FF),
+                                ),
+                              )
+                            : Image.network(
+                                _avatarUrl!,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stack) {
+                                  return const Center(
                                     child: Icon(
                                       CupertinoIcons.person_fill,
                                       color: Color(0xFF2563FF),
                                     ),
-                                  )
-                                : Image.network(
-                                    _avatarUrl!,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stack) {
-                                      return const Center(
-                                        child: Icon(
-                                          CupertinoIcons.person_fill,
-                                          color: Color(0xFF2563FF),
-                                        ),
-                                      );
-                                    },
-                                  ),
+                                  );
+                                },
+                              ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -194,12 +203,18 @@ class _ProfilePageState extends State<ProfilePage> {
                             const SizedBox(height: 4),
                             const Text(
                               'Edit Profil',
-                              style: TextStyle(color: Colors.white70, fontSize: 12),
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12,
+                              ),
                             ),
                           ],
                         ),
                       ),
-                      const Icon(CupertinoIcons.chevron_forward, color: Colors.white),
+                      const Icon(
+                        CupertinoIcons.chevron_forward,
+                        color: Colors.white,
+                      ),
                     ],
                   ),
                 ),
@@ -254,12 +269,15 @@ class _ProfilePageState extends State<ProfilePage> {
         items: const [
           BottomNavigationBarItem(icon: Icon(CupertinoIcons.house), label: ''),
           BottomNavigationBarItem(icon: Icon(CupertinoIcons.heart), label: ''),
-          BottomNavigationBarItem(icon: Icon(CupertinoIcons.list_bullet), label: ''),
+          BottomNavigationBarItem(
+            icon: Icon(CupertinoIcons.list_bullet),
+            label: '',
+          ),
           BottomNavigationBarItem(icon: Icon(CupertinoIcons.bag), label: ''),
           BottomNavigationBarItem(icon: Icon(CupertinoIcons.person), label: ''),
         ],
         selectedItemColor: Colors.black,
-        unselectedItemColor: const Color(0xFF2563FF),
+        unselectedItemColor: Color(0xFF2563FF),
         showSelectedLabels: false,
         showUnselectedLabels: false,
         backgroundColor: Colors.white,
@@ -300,7 +318,10 @@ class _MenuItem extends StatelessWidget {
         ),
         title: Text(
           title,
-          style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black),
+          style: const TextStyle(
+            fontWeight: FontWeight.w600,
+            color: Colors.black,
+          ),
         ),
         subtitle: subtitle != null
             ? Text(
@@ -308,7 +329,10 @@ class _MenuItem extends StatelessWidget {
                 style: const TextStyle(color: Color(0xFF8E99AF), fontSize: 12),
               )
             : null,
-        trailing: const Icon(CupertinoIcons.chevron_forward, color: Colors.black38),
+        trailing: const Icon(
+          CupertinoIcons.chevron_forward,
+          color: Colors.black38,
+        ),
         onTap: onTap,
       ),
     );

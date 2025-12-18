@@ -7,7 +7,7 @@ import 'package:intl/date_symbol_data_local.dart';
 class PaymentPage extends StatefulWidget {
   final List<Map<String, dynamic>> items;
   final String? orderId;
-  
+
   const PaymentPage({super.key, required this.items, this.orderId});
 
   @override
@@ -17,7 +17,7 @@ class PaymentPage extends StatefulWidget {
 class _PaymentPageState extends State<PaymentPage> {
   String _shippingOption = 'express'; // 'standard' or 'express'
   String _paymentMethod = 'kartu'; // 'kartu' or 'qris'
-  
+
   String? _addressName;
   String? _addressLine;
   String? _contactPhone;
@@ -43,7 +43,7 @@ class _PaymentPageState extends State<PaymentPage> {
     final user = client.auth.currentUser;
     if (user != null) {
       _contactEmail = user.email;
-      
+
       try {
         // Fetch address
         final addr = await client
@@ -52,13 +52,17 @@ class _PaymentPageState extends State<PaymentPage> {
             .eq('user_id', user.id)
             .eq('is_default', true)
             .maybeSingle();
-            
+
         if (addr != null) {
           _addressName = addr['receiver_name'] as String?;
           final line = addr['address_line'] as String? ?? '';
           final city = addr['city'] as String? ?? '';
           final postal = addr['postal_code'] as String? ?? '';
-          _addressLine = [line, city, postal].where((s) => s.isNotEmpty).join(', ');
+          _addressLine = [
+            line,
+            city,
+            postal,
+          ].where((s) => s.isNotEmpty).join(', ');
           _contactPhone = addr['phone'] as String?;
         }
       } catch (_) {}
@@ -83,7 +87,11 @@ class _PaymentPageState extends State<PaymentPage> {
   double get _grandTotal => _itemsTotal + _shippingCost;
 
   String _formatCurrency(num value) {
-    return NumberFormat.currency(locale: 'id_ID', symbol: 'Rp', decimalDigits: 0).format(value);
+    return NumberFormat.currency(
+      locale: 'id_ID',
+      symbol: 'Rp',
+      decimalDigits: 0,
+    ).format(value);
   }
 
   @override
@@ -93,7 +101,10 @@ class _PaymentPageState extends State<PaymentPage> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text('Pembayaran', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Pembayaran',
+          style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+        ),
         backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: false,
@@ -116,10 +127,16 @@ class _PaymentPageState extends State<PaymentPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         if (_addressName != null) ...[
-                          Text(_addressName!, style: const TextStyle(fontWeight: FontWeight.bold)),
+                          Text(
+                            _addressName!,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
                           const SizedBox(height: 4),
                         ],
-                        Text(_addressLine ?? 'Belum ada alamat', style: TextStyle(color: Colors.grey[600])),
+                        Text(
+                          _addressLine ?? 'Belum ada alamat',
+                          style: TextStyle(color: Colors.grey[600]),
+                        ),
                       ],
                     ),
                     onEdit: () {
@@ -135,10 +152,16 @@ class _PaymentPageState extends State<PaymentPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         if (_contactPhone != null) ...[
-                          Text(_contactPhone!, style: const TextStyle(fontWeight: FontWeight.bold)),
+                          Text(
+                            _contactPhone!,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
                           const SizedBox(height: 4),
                         ],
-                        Text(_contactEmail ?? '', style: TextStyle(color: Colors.grey[600])),
+                        Text(
+                          _contactEmail ?? '',
+                          style: TextStyle(color: Colors.grey[600]),
+                        ),
                       ],
                     ),
                     onEdit: () {
@@ -150,18 +173,37 @@ class _PaymentPageState extends State<PaymentPage> {
                   // Barang
                   Row(
                     children: [
-                      const Text('Barang', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      const Text(
+                        'Barang',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                       const SizedBox(width: 8),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(color: Colors.blue[100], borderRadius: BorderRadius.circular(12)),
-                        child: Text('${widget.items.length}', style: TextStyle(color: Colors.blue[800], fontWeight: FontWeight.bold)),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.blue[100],
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '${widget.items.length}',
+                          style: TextStyle(
+                            color: Colors.blue[800],
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 16),
                   ...widget.items.map((item) {
-                    final price = (item['discount_price'] ?? item['price'] ?? 0) as num;
+                    final price =
+                        (item['discount_price'] ?? item['price'] ?? 0) as num;
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 16.0),
                       child: Row(
@@ -170,7 +212,9 @@ class _PaymentPageState extends State<PaymentPage> {
                             children: [
                               CircleAvatar(
                                 radius: 24,
-                                backgroundImage: item['image_url'] != null ? NetworkImage(item['image_url']) : null,
+                                backgroundImage: item['image_url'] != null
+                                    ? NetworkImage(item['image_url'])
+                                    : null,
                                 backgroundColor: Colors.grey[200],
                               ),
                               Positioned(
@@ -178,8 +222,17 @@ class _PaymentPageState extends State<PaymentPage> {
                                 bottom: 0,
                                 child: Container(
                                   padding: const EdgeInsets.all(4),
-                                  decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-                                  child: Text('${item['quantity']}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                                  decoration: const BoxDecoration(
+                                    color: Colors.white,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Text(
+                                    '${item['quantity']}',
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ],
@@ -193,7 +246,10 @@ class _PaymentPageState extends State<PaymentPage> {
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          Text(_formatCurrency(price), style: const TextStyle(fontWeight: FontWeight.bold)),
+                          Text(
+                            _formatCurrency(price),
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
                         ],
                       ),
                     );
@@ -201,7 +257,10 @@ class _PaymentPageState extends State<PaymentPage> {
                   const SizedBox(height: 24),
 
                   // Shipping Options
-                  const Text('Shipping Options', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Text(
+                    'Shipping Options',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
                   const SizedBox(height: 12),
                   _buildShippingOption(
                     title: 'Standar',
@@ -227,7 +286,13 @@ class _PaymentPageState extends State<PaymentPage> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Metode Pembayaran', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      const Text(
+                        'Metode Pembayaran',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                       IconButton(
                         icon: const Icon(Icons.edit, color: Colors.blue),
                         onPressed: () {},
@@ -248,7 +313,13 @@ class _PaymentPageState extends State<PaymentPage> {
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Colors.white,
-          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -5))],
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, -5),
+            ),
+          ],
         ),
         child: Row(
           children: [
@@ -257,8 +328,17 @@ class _PaymentPageState extends State<PaymentPage> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Total', style: TextStyle(fontWeight: FontWeight.bold)),
-                  Text(_formatCurrency(_grandTotal), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Text(
+                    'Total',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    _formatCurrency(_grandTotal),
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -267,8 +347,13 @@ class _PaymentPageState extends State<PaymentPage> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF1F1F1F),
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
               child: const Text('Bayar'),
             ),
@@ -278,8 +363,13 @@ class _PaymentPageState extends State<PaymentPage> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
               child: const Text('Batalkan'),
             ),
@@ -310,7 +400,10 @@ class _PaymentPageState extends State<PaymentPage> {
         items: const [
           BottomNavigationBarItem(icon: Icon(CupertinoIcons.house), label: ''),
           BottomNavigationBarItem(icon: Icon(CupertinoIcons.heart), label: ''),
-          BottomNavigationBarItem(icon: Icon(CupertinoIcons.list_bullet), label: ''),
+          BottomNavigationBarItem(
+            icon: Icon(CupertinoIcons.list_bullet),
+            label: '',
+          ),
           BottomNavigationBarItem(icon: Icon(CupertinoIcons.bag), label: ''),
           BottomNavigationBarItem(icon: Icon(CupertinoIcons.person), label: ''),
         ],
@@ -326,7 +419,12 @@ class _PaymentPageState extends State<PaymentPage> {
   Future<void> _handleBackToOrders() async {
     if (widget.orderId != null) {
       if (!mounted) return;
-      Navigator.pushNamedAndRemoveUntil(context, '/orders', (route) => route.isFirst, arguments: 'Belum Dibayar');
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        '/orders',
+        (route) => route.isFirst,
+        arguments: 'Belum Dibayar',
+      );
       return;
     }
     Navigator.pop(context);
@@ -334,29 +432,41 @@ class _PaymentPageState extends State<PaymentPage> {
 
   Future<void> _processPayment() async {
     if (widget.orderId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Order ID missing')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Order ID missing')));
       return;
     }
-    
+
     setState(() => _loading = true);
     try {
       final client = Supabase.instance.client;
-      
+
       // Update order with final details
-      await client.from('orders').update({
-        'status': 'dikemas', 
-        'shipping_fee': _shippingCost,
-        'total_price': _grandTotal,
-        'address_name': _addressName,
-        'address_line': _addressLine,
-        'address_phone': _contactPhone,
-        'address_email': _contactEmail,
-      }).eq('id', widget.orderId!);
+      await client
+          .from('orders')
+          .update({
+            'status': 'dikemas',
+            'shipping_fee': _shippingCost,
+            'total_price': _grandTotal,
+            'address_name': _addressName,
+            'address_line': _addressLine,
+            'address_phone': _contactPhone,
+            'address_email': _contactEmail,
+          })
+          .eq('id', widget.orderId!);
 
       if (!mounted) return;
-      Navigator.pushNamedAndRemoveUntil(context, '/orders', (route) => route.isFirst, arguments: 'Dalam Proses');
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        '/orders',
+        (route) => route.isFirst,
+        arguments: 'Dalam Proses',
+      );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal memproses pembayaran: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Gagal memproses pembayaran: $e')));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -372,13 +482,19 @@ class _PaymentPageState extends State<PaymentPage> {
     super.dispose();
   }
 
-  Widget _buildSectionCard({required String title, required Widget content, required VoidCallback onEdit}) {
+  Widget _buildSectionCard({
+    required String title,
+    required Widget content,
+    required VoidCallback onEdit,
+  }) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 5)],
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -391,7 +507,10 @@ class _PaymentPageState extends State<PaymentPage> {
                 onTap: onEdit,
                 child: Container(
                   padding: const EdgeInsets.all(4),
-                  decoration: const BoxDecoration(color: Colors.blue, shape: BoxShape.circle),
+                  decoration: const BoxDecoration(
+                    color: Colors.blue,
+                    shape: BoxShape.circle,
+                  ),
                   child: const Icon(Icons.edit, size: 16, color: Colors.white),
                 ),
               ),
@@ -404,14 +523,19 @@ class _PaymentPageState extends State<PaymentPage> {
     );
   }
 
-  Widget _buildShippingOption({required String title, required String subtitle, required String price, required String value}) {
+  Widget _buildShippingOption({
+    required String title,
+    required String subtitle,
+    required String price,
+    required String value,
+  }) {
     final isSelected = _shippingOption == value;
     return InkWell(
       onTap: () => setState(() => _shippingOption = value),
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.blue.withValues(alpha: 0.1) : Colors.grey[100],
+          color: isSelected ? Colors.blue.withOpacity(0.1) : Colors.grey[100],
           borderRadius: BorderRadius.circular(8),
           border: isSelected ? Border.all(color: Colors.blue) : null,
         ),
@@ -425,15 +549,23 @@ class _PaymentPageState extends State<PaymentPage> {
                 color: isSelected ? Colors.blue : Colors.grey[300],
                 border: Border.all(color: Colors.white, width: 2),
               ),
-              child: isSelected ? const Icon(Icons.check, size: 12, color: Colors.white) : null,
+              child: isSelected
+                  ? const Icon(Icons.check, size: 12, color: Colors.white)
+                  : null,
             ),
             const SizedBox(width: 12),
             Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(width: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(color: Colors.blue[50], borderRadius: BorderRadius.circular(4)),
-              child: Text(subtitle, style: TextStyle(fontSize: 10, color: Colors.blue[700])),
+              decoration: BoxDecoration(
+                color: Colors.blue[50],
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                subtitle,
+                style: TextStyle(fontSize: 10, color: Colors.blue[700]),
+              ),
             ),
             const Spacer(),
             Text(price, style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -450,7 +582,7 @@ class _PaymentPageState extends State<PaymentPage> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.blue.withValues(alpha: 0.1) : Colors.grey[100],
+          color: isSelected ? Colors.blue.withOpacity(0.1) : Colors.grey[100],
           borderRadius: BorderRadius.circular(20),
           border: isSelected ? Border.all(color: Colors.blue) : null,
         ),
@@ -489,7 +621,9 @@ class _PaymentPageState extends State<PaymentPage> {
               .select('full_name, phone')
               .eq('id', user.id)
               .limit(1);
-          final list = (prof as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? const [];
+          final list =
+              (prof as List<dynamic>?)?.cast<Map<String, dynamic>>() ??
+              const [];
           if (list.isNotEmpty) {
             _nameCtrl.text = (list.first['full_name'] ?? '').toString();
             _phoneCtrl.text = (list.first['phone'] ?? '').toString();
@@ -517,19 +651,27 @@ class _PaymentPageState extends State<PaymentPage> {
                   children: [
                     TextField(
                       controller: _nameCtrl,
-                      decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Nama penerima'),
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        hintText: 'Nama penerima',
+                      ),
                     ),
                     const SizedBox(height: 8),
                     TextField(
                       controller: _phoneCtrl,
-                      keyboardType: TextInputType.phone,
-                      decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Nomor telepon'),
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        hintText: 'Nomor telepon',
+                      ),
                     ),
                     const SizedBox(height: 8),
                     TextField(
                       controller: _addrCtrl,
                       maxLines: 3,
-                      decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Alamat lengkap'),
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        hintText: 'Alamat lengkap',
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Row(
@@ -537,15 +679,20 @@ class _PaymentPageState extends State<PaymentPage> {
                         Expanded(
                           child: TextField(
                             controller: _cityCtrl,
-                            decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Kota'),
+                            decoration: const InputDecoration(
+                              border: OutlineInputBorder(),
+                              hintText: 'Kota',
+                            ),
                           ),
                         ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: TextField(
                             controller: _postalCtrl,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Kode pos'),
+                            decoration: const InputDecoration(
+                              border: OutlineInputBorder(),
+                              hintText: 'Kode pos',
+                            ),
                           ),
                         ),
                       ],
@@ -559,8 +706,13 @@ class _PaymentPageState extends State<PaymentPage> {
                   style: TextButton.styleFrom(
                     foregroundColor: Colors.white,
                     backgroundColor: Colors.red,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                   ),
                   child: const Text('Batal'),
                 ),
@@ -574,12 +726,20 @@ class _PaymentPageState extends State<PaymentPage> {
                             final client = Supabase.instance.client;
                             final user = client.auth.currentUser;
                             if (user == null) {
-                              messenger.showSnackBar(const SnackBar(content: Text('Silakan login terlebih dahulu')));
+                              messenger.showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Silakan login terlebih dahulu',
+                                  ),
+                                ),
+                              );
                               setS(() => _saving = false);
                               return;
                             }
                             final newAddr = _addrCtrl.text.trim();
-                            final name = _nameCtrl.text.trim().isNotEmpty ? _nameCtrl.text.trim() : (user.email ?? '').split('@').first;
+                            final name = _nameCtrl.text.trim().isNotEmpty
+                                ? _nameCtrl.text.trim()
+                                : (user.email ?? '').split('@').first;
                             final phone = _phoneCtrl.text.trim();
                             final city = _cityCtrl.text.trim();
                             final postal = _postalCtrl.text.trim();
@@ -590,7 +750,8 @@ class _PaymentPageState extends State<PaymentPage> {
                                 .eq('is_default', true)
                                 .limit(1)
                                 .maybeSingle();
-                            if (existing != null && (existing['id'] ?? '').toString().isNotEmpty) {
+                            if (existing != null &&
+                                (existing['id'] ?? '').toString().isNotEmpty) {
                               await client
                                   .from('user_addresses')
                                   .update({
@@ -614,21 +775,36 @@ class _PaymentPageState extends State<PaymentPage> {
                               });
                             }
                             _addressName = name;
-                            _addressLine = [newAddr, city, postal].where((e) => e.isNotEmpty).join(', ');
-                            _contactPhone = phone.isNotEmpty ? phone : _contactPhone;
+                            _addressLine = [
+                              newAddr,
+                              city,
+                              postal,
+                            ].where((e) => e.isNotEmpty).join(', ');
+                            _contactPhone = phone.isNotEmpty
+                                ? phone
+                                : _contactPhone;
                             if (mounted) setState(() {});
                             Navigator.pop(ctx);
-                            messenger.showSnackBar(const SnackBar(content: Text('Alamat disimpan')));
+                            messenger.showSnackBar(
+                              const SnackBar(content: Text('Alamat disimpan')),
+                            );
                           } catch (e) {
-                            messenger.showSnackBar(SnackBar(content: Text('Gagal menyimpan: $e')));
+                            messenger.showSnackBar(
+                              SnackBar(content: Text('Gagal menyimpan: $e')),
+                            );
                             setS(() => _saving = false);
                           }
                         },
                   style: TextButton.styleFrom(
                     foregroundColor: Colors.white,
                     backgroundColor: const Color(0xFF2563FF),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                   ),
                   child: const Text('Simpan'),
                 ),
@@ -665,14 +841,25 @@ class _PaymentPageState extends State<PaymentPage> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Metode Pembayaran', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    const Text(
+                      'Metode Pembayaran',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     ElevatedButton(
                       onPressed: () => Navigator.pop(ctx, true),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: primaryBlue,
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                       ),
                       child: const Text('Sudah'),
                     ),
@@ -684,7 +871,12 @@ class _PaymentPageState extends State<PaymentPage> {
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(12),
-                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8)],
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 8,
+                      ),
+                    ],
                     border: Border.all(color: Colors.grey.shade200),
                   ),
                   child: Row(
@@ -715,17 +907,33 @@ class _PaymentPageState extends State<PaymentPage> {
                               ],
                             ),
                             const SizedBox(height: 12),
-                            const Text('•••• •••• •••• 1234', style: TextStyle(letterSpacing: 2, fontSize: 16, fontWeight: FontWeight.bold)),
+                            const Text(
+                              '•••• •••• •••• 1234',
+                              style: TextStyle(
+                                letterSpacing: 2,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                             const SizedBox(height: 8),
                             Row(
                               children: const [
-                                Text('2025', style: TextStyle(color: Colors.black54)),
+                                Text(
+                                  '2025',
+                                  style: TextStyle(color: Colors.black54),
+                                ),
                                 SizedBox(width: 12),
-                                Text('12/25', style: TextStyle(color: Colors.black54)),
+                                Text(
+                                  '12/25',
+                                  style: TextStyle(color: Colors.black54),
+                                ),
                               ],
                             ),
                             const SizedBox(height: 8),
-                            const Text('FERDINAND', style: TextStyle(fontWeight: FontWeight.bold)),
+                            const Text(
+                              'FERDINAND',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
                           ],
                         ),
                       ),
@@ -758,14 +966,21 @@ class _PaymentPageState extends State<PaymentPage> {
     if (result == true) {
       Map<String, dynamic>? prefetch;
       final first = widget.items.isNotEmpty ? widget.items.first : null;
-      final name = first == null ? null : (first['name'] ?? first['title'])?.toString();
-      final image = first == null ? null : (first['image_url'] ?? '')?.toString();
-      final sellerName = first == null ? null : (first['seller_name'] ?? '')?.toString();
+      final name = first == null
+          ? null
+          : (first['name'] ?? first['title'])?.toString();
+      final image = first == null
+          ? null
+          : (first['image_url'] ?? '')?.toString();
+      final sellerName = first == null
+          ? null
+          : (first['seller_name'] ?? '')?.toString();
       prefetch = {
         'id': '',
         'order_number': '',
         if (name != null && name.isNotEmpty) 'description': name,
-        if (sellerName != null && sellerName.isNotEmpty) 'seller_name': sellerName,
+        if (sellerName != null && sellerName.isNotEmpty)
+          'seller_name': sellerName,
         if (image != null && image.isNotEmpty) 'image_url': image,
       };
       await _showPaymentSuccess(null, prefetch);
@@ -794,24 +1009,39 @@ class _PaymentPageState extends State<PaymentPage> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Metode Pembayaran', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                const Text(
+                  'Metode Pembayaran',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
                 const SizedBox(height: 16),
                 Container(
                   width: double.infinity,
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(12),
-                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8)],
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 8,
+                      ),
+                    ],
                     border: Border.all(color: Colors.grey.shade200),
                   ),
                   padding: const EdgeInsets.symmetric(vertical: 24),
                   child: Center(
-                    child: Icon(Icons.qr_code, size: 180, color: Colors.black87),
+                    child: Icon(
+                      Icons.qr_code,
+                      size: 180,
+                      color: Colors.black87,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
                 const Center(
-                  child: Text('Segera Lakukan Pembayaran', style: TextStyle(color: Colors.black54)),
+                  child: Text(
+                    'Segera Lakukan Pembayaran',
+                    style: TextStyle(color: Colors.black54),
+                  ),
                 ),
                 const SizedBox(height: 16),
                 Center(
@@ -820,8 +1050,13 @@ class _PaymentPageState extends State<PaymentPage> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: primaryBlue,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
                     ),
                     child: const Text('Sudah'),
                   ),
@@ -837,7 +1072,10 @@ class _PaymentPageState extends State<PaymentPage> {
     }
   }
 
-  Future<void> _showPaymentSuccess(String? orderId, Map<String, dynamic>? prefetch) async {
+  Future<void> _showPaymentSuccess(
+    String? orderId,
+    Map<String, dynamic>? prefetch,
+  ) async {
     await showGeneralDialog(
       context: context,
       barrierLabel: 'success',
@@ -850,19 +1088,36 @@ class _PaymentPageState extends State<PaymentPage> {
             alignment: Alignment.topCenter,
             children: [
               Container(
-                margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+                margin: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 32,
+                ),
                 padding: const EdgeInsets.fromLTRB(16, 40, 16, 16),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
-                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 16)],
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 16,
+                    ),
+                  ],
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text('Pembayaran Berhasil', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    const Text(
+                      'Pembayaran Berhasil',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     const SizedBox(height: 6),
-                    const Text('Pembayaran berhasil dilakukan!', style: TextStyle(color: Colors.black54)),
+                    const Text(
+                      'Pembayaran berhasil dilakukan!',
+                      style: TextStyle(color: Colors.black54),
+                    ),
                     const SizedBox(height: 16),
                     TextButton(
                       onPressed: () {
@@ -871,43 +1126,73 @@ class _PaymentPageState extends State<PaymentPage> {
                           Map<String, dynamic>? pf = prefetch;
                           try {
                             if (id.isEmpty) {
-                              id = await _createPendingOrderAndClearCart() ?? '';
+                              id =
+                                  await _createPendingOrderAndClearCart() ?? '';
                             }
-                            if (pf == null || ((pf['id'] ?? '') as String).isEmpty) {
-                              final first = widget.items.isNotEmpty ? widget.items.first : null;
-                              final name = first == null ? null : (first['name'] ?? first['title'])?.toString();
-                              final image = first == null ? null : (first['image_url'] ?? '')?.toString();
-                              final sellerName = first == null ? null : (first['seller_name'] ?? '')?.toString();
+                            if (pf == null ||
+                                ((pf['id'] ?? '') as String).isEmpty) {
+                              final first = widget.items.isNotEmpty
+                                  ? widget.items.first
+                                  : null;
+                              final name = first == null
+                                  ? null
+                                  : (first['name'] ?? first['title'])
+                                        ?.toString();
+                              final image = first == null
+                                  ? null
+                                  : (first['image_url'] ?? '')?.toString();
+                              final sellerName = first == null
+                                  ? null
+                                  : (first['seller_name'] ?? '')?.toString();
                               pf = {
                                 'id': id,
                                 'order_number': id,
-                                if (name != null && name.isNotEmpty) 'description': name,
-                                if (sellerName != null && sellerName.isNotEmpty) 'seller_name': sellerName,
-                                if (image != null && image.isNotEmpty) 'image_url': image,
+                                if (name != null && name.isNotEmpty)
+                                  'description': name,
+                                if (sellerName != null && sellerName.isNotEmpty)
+                                  'seller_name': sellerName,
+                                if (image != null && image.isNotEmpty)
+                                  'image_url': image,
                               };
                             } else {
                               pf['id'] = id;
                               pf['order_number'] = id;
                             }
                           } catch (_) {
-                            if (pf == null || ((pf['id'] ?? '') as String).isEmpty) {
-                              final first = widget.items.isNotEmpty ? widget.items.first : null;
-                              final name = first == null ? null : (first['name'] ?? first['title'])?.toString();
-                              final image = first == null ? null : (first['image_url'] ?? '')?.toString();
-                              final sellerName = first == null ? null : (first['seller_name'] ?? '')?.toString();
+                            if (pf == null ||
+                                ((pf['id'] ?? '') as String).isEmpty) {
+                              final first = widget.items.isNotEmpty
+                                  ? widget.items.first
+                                  : null;
+                              final name = first == null
+                                  ? null
+                                  : (first['name'] ?? first['title'])
+                                        ?.toString();
+                              final image = first == null
+                                  ? null
+                                  : (first['image_url'] ?? '')?.toString();
+                              final sellerName = first == null
+                                  ? null
+                                  : (first['seller_name'] ?? '')?.toString();
                               pf = {
                                 'id': id,
                                 'order_number': id,
-                                if (name != null && name.isNotEmpty) 'description': name,
-                                if (sellerName != null && sellerName.isNotEmpty) 'seller_name': sellerName,
-                                if (image != null && image.isNotEmpty) 'image_url': image,
+                                if (name != null && name.isNotEmpty)
+                                  'description': name,
+                                if (sellerName != null && sellerName.isNotEmpty)
+                                  'seller_name': sellerName,
+                                if (image != null && image.isNotEmpty)
+                                  'image_url': image,
                               };
                             }
                           } finally {
                             Navigator.pop(ctx);
                             Future.microtask(() {
                               if (!mounted) return;
-                              Navigator.of(context, rootNavigator: true).pushNamed(
+                              Navigator.of(
+                                context,
+                                rootNavigator: true,
+                              ).pushNamed(
                                 '/payment_success',
                                 arguments: {
                                   'orderId': id,
@@ -923,10 +1208,15 @@ class _PaymentPageState extends State<PaymentPage> {
                       style: TextButton.styleFrom(
                         foregroundColor: Colors.black,
                         backgroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
-                          side: BorderSide(color: Colors.black.withOpacity(0.2)),
+                          side: BorderSide(
+                            color: Colors.black.withOpacity(0.2),
+                          ),
                         ),
                       ),
                       child: const Text('Lacak Pesanan Saya'),
@@ -948,5 +1238,50 @@ class _PaymentPageState extends State<PaymentPage> {
         );
       },
     );
+  }
+
+  // --- FUNGSI BARU YANG DITAMBAHKAN UNTUK MEMPERBAIKI ERROR ---
+  Future<String?> _createPendingOrderAndClearCart() async {
+    try {
+      final client = Supabase.instance.client;
+      final user = client.auth.currentUser;
+      if (user == null) return null;
+
+      // 1. Header Order
+      final orderRes = await client
+          .from('orders')
+          .insert({
+            'user_id': user.id,
+            'status': 'belum dibayar',
+            'total_price': _grandTotal,
+            'shipping_fee': _shippingCost,
+            'address_name': _addressName,
+            'address_line': _addressLine,
+            'address_phone': _contactPhone,
+            'address_email': _contactEmail,
+          })
+          .select('id')
+          .single();
+
+      final newOrderId = orderRes['id'].toString();
+
+      // 2. Order Items
+      for (var item in widget.items) {
+        await client.from('order_items').insert({
+          'order_id': newOrderId,
+          'product_id': item['product_id'] ?? item['id'],
+          'quantity': item['quantity'] ?? 1,
+          'price': item['discount_price'] ?? item['price'] ?? 0,
+        });
+      }
+
+      // 3. Clear Carts
+      await client.from('carts').delete().eq('user_id', user.id);
+
+      return newOrderId;
+    } catch (e) {
+      debugPrint('Error _createPendingOrderAndClearCart: $e');
+      return null;
+    }
   }
 }

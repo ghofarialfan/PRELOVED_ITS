@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'start_page.dart';
 
+// pages
 import 'home_page.dart';
 import 'profile_page.dart';
 import 'orders_page.dart';
@@ -14,6 +15,7 @@ import 'favorites_page.dart';
 import 'cart/cart_page.dart';
 import 'payment/payment_success_view.dart';
 
+// auth pages
 import 'auth/login_email_page.dart';
 import 'auth/register_page.dart';
 import 'auth/reset_request_page.dart';
@@ -26,10 +28,7 @@ Future<void> main() async {
   const supabaseAnonKey =
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFhc21veXFkaXBkd25nZ2hib29iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQzMzE4MjMsImV4cCI6MjA3OTkwNzgyM30.r-G27SvnEleAB03l9cGr64nuuCurvAcpX4aR9SjWGzY';
 
-  await Supabase.initialize(
-    url: supabaseUrl,
-    anonKey: supabaseAnonKey,
-  );
+  await Supabase.initialize(url: supabaseUrl, anonKey: supabaseAnonKey);
 
   runApp(const MyApp());
 }
@@ -59,7 +58,6 @@ class MyApp extends StatelessWidget {
 
       // ENTRY POINT UTAMA
       home: const AuthGate(),
-
       routes: {
         '/start': (context) => const StartPage(),
 
@@ -72,7 +70,7 @@ class MyApp extends StatelessWidget {
         '/cart': (context) => const CartPage(),
         '/payment_success': (context) => const PaymentSuccessView(),
 
-        // auth routes
+        // auth
         '/login': (context) => const LoginEmailPage(),
         '/register': (context) => const RegisterPage(),
         '/reset': (context) => const ResetRequestPage(),
@@ -102,7 +100,7 @@ class AuthGate extends StatelessWidget {
   Widget build(BuildContext context) {
     return FutureBuilder<void>(
       future: _consumeRecoveryCodeIfAny(),
-      builder: (context, snap) {
+      builder: (context, snapshot) {
         return StreamBuilder<AuthState>(
           stream: Supabase.instance.client.auth.onAuthStateChange,
           builder: (context, snapshot) {
