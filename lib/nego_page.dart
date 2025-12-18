@@ -1,18 +1,21 @@
 import 'package:flutter/material.dart';
-import 'chat_page.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../chat_page.dart';
 
 class NegoPage extends StatefulWidget {
   final String productId;
   final String productName;
-  final int productPrice;
-  final String productImage;
+  final String sellerId;
+  final String sellerName;
+  final String sellerAvatarUrl;
 
   const NegoPage({
     super.key,
     required this.productId,
     required this.productName,
-    required this.productPrice,
-    required this.productImage,
+    required this.sellerId,
+    required this.sellerName,
+    required this.sellerAvatarUrl,
   });
 
   @override
@@ -20,7 +23,9 @@ class NegoPage extends StatefulWidget {
 }
 
 class _NegoPageState extends State<NegoPage> {
-  final TextEditingController hargaController = TextEditingController();
+  final _client = Supabase.instance.client;
+  final hargaController = TextEditingController();
+  bool _loading = false;
 
   @override
   void dispose() {
@@ -28,117 +33,145 @@ class _NegoPageState extends State<NegoPage> {
     super.dispose();
   }
 
+  Future<String> _createOrGetChatId() async {
+    final user = _client.auth.currentUser;
+    if (user == null) throw Exception('User belum login');
+
+    // cari chat existing untuk product ini
+    final existing = await _client
+        .from('chats')
+        .select('id')
+        .eq('buyer_id', user.id)
+        .eq('seller_id', widget.sellerId)
+        .eq('product_id', widget.productId)
+        .maybeSingle();
+
+    if (existing != null) return existing['id'].toString();
+
+    final inserted = await _client
+        .from('chats')
+        .insert({
+          'buyer_id': user.id,
+          'seller_id': widget.sellerId,
+          'product_id': widget.productId,
+          'last_message': 'Mulai nego',
+          'updated_at': DateTime.now().toIso8601String(),
+        })
+        .select('id')
+        .single();
+
+    return inserted['id'].toString();
+  }
+
+  Future<void> _submitOffer() async {
+    final user = _client.auth.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Silakan login dulu')));
+      return;
+    }
+
+    final offer = int.tryParse(
+      hargaController.text.replaceAll('.', '').replaceAll(',', '').trim(),
+    );
+
+    if (offer == null || offer <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Masukkan harga yang valid')),
+      );
+      return;
+    }
+
+    setState(() => _loading = true);
+
+    try {
+      final chatId = await _createOrGetChatId();
+
+      // insert message offer
+      await _client.from('chat_messages').insert({
+        'chat_id': chatId,
+        'sender_id': user.id,
+        'message': 'Menawar Rp $offer',
+        'message_type': 'offer',
+      });
+
+      // update chat last_message
+      await _client
+          .from('chats')
+          .update({
+            'last_message': 'Menawar Rp $offer',
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', chatId);
+
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ChatPage(
+            chatId: chatId,
+            sellerId: widget.sellerId,
+            sellerName: widget.sellerName,
+            sellerAvatarUrl: widget.sellerAvatarUrl,
+            productId: widget.productId,
+            productName: widget.productName,
+            offerPrice: offer,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Gagal nego: $e')));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black54,
-      body: Center(
-        child: Container(
-          margin: const EdgeInsets.all(16),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Header
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    "Nego",
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(context),
-                  ), 
-                ],
+      appBar: AppBar(
+        title: const Text('Nego'),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
+        elevation: 1,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.productName,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: hargaController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Masukkan harga tawaran',
+                border: OutlineInputBorder(),
               ),
-
-              const SizedBox(height: 10),
-
-              // Ringkasan Produk
-              Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.network(
-                      widget.productImage,
-                      width: 60,
-                      height: 60,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.productName,
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 4),
-                        Text("Rp ${widget.productPrice}"),
-                      ],
-                    ),
-                  )
-                ],
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _loading ? null : _submitOffer,
+                child: _loading
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Kirim Nego'),
               ),
-
-              const SizedBox(height: 16),
-
-              // Input Harga
-              TextField(
-                controller: hargaController,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  labelText: "Harga kamu",
-                  prefixText: "Rp ",
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 8),
-              const Text(
-                "Harga ini belum termasuk ongkir",
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-
-              const SizedBox(height: 20),
-
-              // Tombol Kirim
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.black,
-                    padding: const EdgeInsets.all(14),
-                  ),
-                  onPressed: () {
-                    if (hargaController.text.isEmpty) return;
-
-                    Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => ChatPage(
-                          productId: widget.productId,
-                          productName: widget.productName,
-                          offerPrice: hargaController.text,
-                        ),
-                      ),
-                    );
-                  },
-                  child: const Text("Kirim nego"),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

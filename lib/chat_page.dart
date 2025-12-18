@@ -1,31 +1,26 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'chat_list_page.dart'; // import ChatListPage
-
-/// MODEL CHAT
-class ChatMessage {
-  final String sender; // buyer / seller
-  final String type; // text / offer / counter / payment
-  final String message;
-  final int? price;
-
-  ChatMessage({
-    required this.sender,
-    required this.type,
-    required this.message,
-    this.price,
-  });
-}
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ChatPage extends StatefulWidget {
-  final String productId;
-  final String productName;
-  final String offerPrice;
+  final String chatId;
+  final String sellerId;
+  final String sellerName;
+  final String sellerAvatarUrl;
+
+  final String? productId;
+  final String? productName;
+  final int? offerPrice;
 
   const ChatPage({
     super.key,
-    required this.productId,
-    required this.productName,
-    required this.offerPrice,
+    required this.chatId,
+    required this.sellerId,
+    required this.sellerName,
+    required this.sellerAvatarUrl,
+    this.productId,
+    this.productName,
+    this.offerPrice,
   });
 
   @override
@@ -33,289 +28,274 @@ class ChatPage extends StatefulWidget {
 }
 
 class _ChatPageState extends State<ChatPage> {
-  final TextEditingController messageController = TextEditingController();
+  final _client = Supabase.instance.client;
 
-  final String sellerName = "chokies.shop";
-  final String sellerAvatar =
-      "https://i.imgur.com/BoN9kdC.png";
+  final _textC = TextEditingController();
+  final _scrollC = ScrollController();
 
-  final List<ChatMessage> messages = [];
-  int? agreedPrice;
+  bool _loading = true;
+  List<Map<String, dynamic>> _messages = [];
+
+  RealtimeChannel? _channel;
 
   @override
   void initState() {
     super.initState();
-
-    /// BUYER KIRIM NEGO AWAL
-    messages.add(
-      ChatMessage(
-        sender: "buyer",
-        type: "offer",
-        message: "Saya menawar harga",
-        price: int.parse(widget.offerPrice),
-      ),
-    );
-
-    /// SELLER AUTO RESPON NEGO
-    Future.delayed(const Duration(seconds: 1), () {
-      sellerCounterOffer();
-    });
+    _loadMessages();
+    _subscribeRealtime();
   }
 
   @override
   void dispose() {
-    messageController.dispose();
+    _textC.dispose();
+    _scrollC.dispose();
+    _unsubscribe();
     super.dispose();
   }
 
-  /// BUYER KIRIM CHAT
-  void sendMessage() {
-    if (messageController.text.trim().isEmpty) return;
+  Future<void> _loadMessages() async {
+    try {
+      setState(() => _loading = true);
 
-    final text = messageController.text;
+      final res = await _client
+          .from('chat_messages')
+          .select('*')
+          .eq('chat_id', widget.chatId)
+          .order('created_at', ascending: true);
 
-    setState(() {
-      messages.add(
-        ChatMessage(
-          sender: "buyer",
-          type: "text",
-          message: text,
-        ),
-      );
-    });
+      final list = (res as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
 
-    messageController.clear();
-
-    /// SELLER AUTO BALAS CHAT
-    autoReply(text);
+      if (!mounted) return;
+      setState(() {
+        _messages = list;
+        _loading = false;
+      });
+      _jumpToBottom();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Gagal memuat chat: $e')));
+    }
   }
 
-  /// AUTO BALAS SELLER
-  void autoReply(String buyerText) async {
-    await Future.delayed(const Duration(seconds: 1));
-
-    setState(() {
-      messages.add(
-        ChatMessage(
-          sender: "seller",
-          type: "text",
-          message: "Baik kak, kami cek dulu ya 🙏",
-        ),
-      );
-    });
-  }
-
-  /// SELLER KIRIM HARGA BALASAN
-  void sellerCounterOffer() {
-    setState(() {
-      messages.add(
-        ChatMessage(
-          sender: "seller",
-          type: "counter",
-          message: "Kalau Rp350.000 bagaimana kak?",
-          price: 350000,
-        ),
-      );
+  void _jumpToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollC.hasClients) return;
+      _scrollC.jumpTo(_scrollC.position.maxScrollExtent);
     });
   }
 
-  /// BUYER TERIMA HARGA
-  void acceptOffer(int price) {
-    setState(() {
-      agreedPrice = price;
+  void _subscribeRealtime() {
+    // ✅ FIX sesuai versi kamu: filter wajib PostgresChangeFilter
+    _channel = _client
+        .channel('chat:${widget.chatId}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'chat_messages',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'chat_id',
+            value: widget.chatId,
+          ),
+          callback: (payload) {
+            final record = payload.newRecord;
+            if (record.isEmpty) return;
+            if (!mounted) return;
 
-      messages.add(
-        ChatMessage(
-          sender: "buyer",
-          type: "text",
-          message: "Baik, saya setuju",
-        ),
-      );
-
-      messages.add(
-        ChatMessage(
-          sender: "seller",
-          type: "payment",
-          message: "Silakan lanjut ke pembayaran",
-        ),
-      );
-    });
+            setState(() {
+              _messages.add(Map<String, dynamic>.from(record));
+            });
+            _jumpToBottom();
+          },
+        )
+        .subscribe();
   }
 
-  /// BUYER TOLAK HARGA
-  void rejectOffer() {
-    setState(() {
-      messages.add(
-        ChatMessage(
-          sender: "buyer",
-          type: "text",
-          message: "Maaf kak, belum cocok",
-        ),
-      );
-    });
+  Future<void> _unsubscribe() async {
+    final ch = _channel;
+    _channel = null;
+    if (ch != null) {
+      await _client.removeChannel(ch);
+    }
+  }
+
+  Future<void> _sendText() async {
+    final user = _client.auth.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Silakan login dulu')));
+      return;
+    }
+
+    final text = _textC.text.trim();
+    if (text.isEmpty) return;
+
+    _textC.clear();
+
+    try {
+      await _client.from('chat_messages').insert({
+        'chat_id': widget.chatId,
+        'sender_id': user.id,
+        'message': text,
+        'message_type': 'text',
+      });
+
+      await _client
+          .from('chats')
+          .update({
+            'last_message': text,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', widget.chatId);
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Gagal kirim pesan: $e')));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final myId = _client.auth.currentUser?.id;
+
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          children: [
-            CircleAvatar(backgroundImage: NetworkImage(sellerAvatar)),
-            const SizedBox(width: 8),
-            Text(sellerName),
-          ],
-        ),
-        actions: [
-          // Tombol ke ChatListPage
-          IconButton(
-            icon: const Icon(Icons.chat),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const ChatListPage(),
-                ),
-              );
-            },
-          ),
-          // Tombol close untuk keluar dari ChatPage
-          IconButton(
-            icon: const Icon(Icons.close),
-            onPressed: () => Navigator.pop(context),
-          ),
-        ],
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 1,
+        title: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: Colors.grey[200],
+              backgroundImage: widget.sellerAvatarUrl.isNotEmpty
+                  ? NetworkImage(widget.sellerAvatarUrl)
+                  : null,
+              child: widget.sellerAvatarUrl.isEmpty
+                  ? const Icon(Icons.person, color: Colors.grey)
+                  : null,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(widget.sellerName, overflow: TextOverflow.ellipsis),
+            ),
+          ],
+        ),
       ),
-
       body: Column(
         children: [
-          const SizedBox(height: 8),
+          if (widget.productName != null && widget.productName!.isNotEmpty)
+            _productHeader(),
 
-          /// INFO PRODUK
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade200,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.sell),
-                const SizedBox(width: 10),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.productName,
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    Text("Harga nego: Rp ${widget.offerPrice}"),
-                  ],
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 10),
-
-          /// CHAT LIST
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: messages.length,
-              itemBuilder: (_, index) {
-                final msg = messages[index];
-                final isMe = msg.sender == "buyer";
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : ListView.builder(
+                    controller: _scrollC,
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                    itemCount: _messages.length,
+                    itemBuilder: (_, i) {
+                      final m = _messages[i];
+                      final senderId = (m['sender_id'] ?? '').toString();
+                      final isMe = myId != null && senderId == myId;
+                      final msg = (m['message'] ?? '').toString();
 
-                return Align(
-                  alignment:
-                      isMe ? Alignment.centerRight : Alignment.centerLeft,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(vertical: 6),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: isMe ? Colors.black : Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          msg.type == "offer" || msg.type == "counter"
-                              ? "${msg.message} (Rp ${msg.price})"
-                              : msg.message,
-                          style: TextStyle(
-                            color: isMe ? Colors.white : Colors.black,
+                      return Align(
+                        alignment: isMe
+                            ? Alignment.centerRight
+                            : Alignment.centerLeft,
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(vertical: 6),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isMe ? Colors.black : Colors.grey.shade200,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Text(
+                            msg,
+                            style: TextStyle(
+                              color: isMe ? Colors.white : Colors.black,
+                            ),
                           ),
                         ),
-
-                        /// TOMBOL TERIMA / TOLAK (KHUSUS COUNTER SELLER)
-                        if (msg.type == "counter" && !isMe) ...[
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              TextButton(
-                                onPressed: () =>
-                                    acceptOffer(msg.price!),
-                                child: const Text("Terima"),
-                              ),
-                              TextButton(
-                                onPressed: rejectOffer,
-                                child: const Text("Tolak"),
-                              ),
-                            ],
-                          ),
-                        ],
-
-                        /// TOMBOL PAYMENT
-                        if (msg.type == "payment") ...[
-                          const SizedBox(height: 8),
-                          ElevatedButton(
-                            onPressed: () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content:
-                                      Text("Menuju halaman pembayaran"),
-                                ),
-                              );
-                            },
-                            child: const Text("Bayar Sekarang"),
-                          ),
-                        ],
-                      ],
-                    ),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
           ),
 
-          /// INPUT CHAT
-          Row(
-            children: [
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: TextField(
-                    controller: messageController,
-                    decoration: InputDecoration(
-                      hintText: "Tulis pesan...",
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(20),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _textC,
+                      minLines: 1,
+                      maxLines: 4,
+                      decoration: InputDecoration(
+                        hintText: 'Tulis pesan...',
+                        filled: true,
+                        fillColor: Colors.grey[100],
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(22),
+                          borderSide: BorderSide.none,
+                        ),
                       ),
                     ),
                   ),
+                  const SizedBox(width: 10),
+                  IconButton(
+                    icon: const Icon(Icons.send),
+                    onPressed: _sendText,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _productHeader() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.blue.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.blue.withOpacity(0.12)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.sell, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.productName ?? '',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.send),
-                onPressed: sendMessage,
-              ),
-            ],
+                if (widget.offerPrice != null)
+                  Text(
+                    'Harga nego: Rp ${widget.offerPrice}',
+                    style: const TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
+              ],
+            ),
           ),
         ],
       ),

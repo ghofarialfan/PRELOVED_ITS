@@ -2,11 +2,10 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-// ✅ FIX: dari widgets -> product folder
 import '../product/product_detail_view.dart';
+import '../chat_page.dart';
 
 class SellerProfilePage extends StatefulWidget {
-  /// sellerId = sellers.id
   final String sellerId;
 
   const SellerProfilePage({super.key, required this.sellerId});
@@ -39,154 +38,53 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
     _loadAll();
   }
 
-  // ✅ FUNGSI BARU: Mendapatkan URL publik dari Supabase Storage
-  // Berdasarkan screenshot storage kamu, path di bucket 'products' diawali folder 'products/'
-  String _getPublicUrl(String path) {
+  /// ✅ Helper public image URL yang aman
+  /// - kalau sudah http -> pakai langsung
+  /// - buang leading '/'
+  /// - kalau belum ada folder -> tambahkan 'products/'
+  String _publicImageUrl(String path) {
     if (path.isEmpty) return '';
     if (path.startsWith('http')) return path;
 
-    String finalPath = path;
-    // Jika di database cuma nama file, tambahkan folder products/ sesuai screenshot storage
-    if (!path.contains('/')) {
-      finalPath = 'products/$path';
+    var normalized = path.trim();
+    normalized = normalized.replaceFirst(RegExp(r'^/+'), '');
+
+    if (!normalized.contains('/')) {
+      normalized = 'products/$normalized';
     }
 
-    return _client.storage.from('products').getPublicUrl(finalPath);
+    return _client.storage.from('products').getPublicUrl(normalized);
   }
 
-  Future<void> _loadAll() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-
-    try {
-      final sellerRes = await _client
-          .from('sellers')
-          .select(
-            'id, name, username, description, location, photo_url, created_at',
-          )
-          .eq('id', widget.sellerId)
-          .maybeSingle();
-
-      if (sellerRes == null) {
-        throw Exception(
-          'Seller dengan id ${widget.sellerId} tidak ditemukan di tabel sellers.',
-        );
-      }
-
-      final prodRes = await _client
-          .from('products')
-          .select(
-            'id, name, price, discount_price, created_at, seller_id, category_id, '
-            'category:categories(id,name)',
-          )
-          .eq('seller_id', widget.sellerId)
-          .order('created_at', ascending: false);
-
-      final products = (prodRes as List)
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList();
-
-      final productIds = products.map((p) => p['id'].toString()).toList();
-      final Map<String, String> primaryImageByProduct = {};
-
-      if (productIds.isNotEmpty) {
-        final imgRes = await _client
-            .from('product_images')
-            .select('product_id, image_url, display_order, order_index')
-            .inFilter('product_id', productIds)
-            .order('display_order', ascending: true)
-            .order('order_index', ascending: true);
-
-        for (final row in (imgRes as List)) {
-          final m = Map<String, dynamic>.from(row as Map);
-          final pid = (m['product_id'] ?? '').toString();
-          primaryImageByProduct.putIfAbsent(
-            pid,
-            () => _getPublicUrl(
-              (m['image_url'] ?? '').toString(),
-            ), // ✅ Gunakan Public URL
-          );
-        }
-      }
-
-      for (final p in products) {
-        final pid = (p['id'] ?? '').toString();
-        p['primary_image_url'] = primaryImageByProduct[pid] ?? '';
-      }
-
-      final Map<String, Map<String, dynamic>> catMap = {};
-      for (final p in products) {
-        final cat = p['category'];
-        if (cat is Map && cat['id'] != null) {
-          final id = cat['id'].toString();
-          final name = (cat['name'] ?? 'Kategori').toString();
-          catMap.putIfAbsent(id, () => {'id': id, 'name': name, 'count': 0});
-          catMap[id]!['count'] = (catMap[id]!['count'] as int) + 1;
-        }
-      }
-      final categories = catMap.values.toList()
-        ..sort((a, b) => (a['name'] as String).compareTo(b['name'] as String));
-
-      double avg = 0;
-      int count = 0;
-      final List<Map<String, dynamic>> reviews = [];
-
-      if (productIds.isNotEmpty) {
-        final revRes = await _client
-            .from('product_reviews')
-            .select(
-              'id, product_id, rating, comment, created_at, image_url, '
-              'user:users(id, full_name, username, profile_image_url, photo_url)',
-            )
-            .inFilter('product_id', productIds)
-            .order('created_at', ascending: false);
-
-        for (final r in (revRes as List)) {
-          reviews.add(Map<String, dynamic>.from(r as Map));
-        }
-
-        final ratings = reviews
-            .map((e) => e['rating'])
-            .where((x) => x != null)
-            .map((x) => (x as num).toDouble())
-            .toList();
-
-        count = ratings.length;
-        if (count > 0) {
-          final sum = ratings.fold<double>(0, (a, b) => a + b);
-          avg = sum / count;
-        }
-      }
-
-      setState(() {
-        _seller = Map<String, dynamic>.from(sellerRes);
-        _products = products;
-        _categories = categories;
-        _reviews = reviews;
-        _avgRating = avg;
-        _reviewCount = count;
-        _loading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _error = e.toString();
-        _loading = false;
-      });
+  IconData _getCategoryIcon(String name) {
+    final lower = name.toLowerCase().trim();
+    if (lower.contains('elektronik') ||
+        lower.contains('gadget') ||
+        lower.contains('hp')) {
+      return CupertinoIcons.device_phone_portrait;
     }
+    if (lower.contains('fashion pria') || lower.contains('pakaian pria')) {
+      return Icons.man;
+    }
+    if (lower.contains('fashion wanita') || lower.contains('pakaian wanita')) {
+      return Icons.woman;
+    }
+    if (lower.contains('pakaian') ||
+        lower.contains('baju') ||
+        lower.contains('fashion') ||
+        lower.contains('kaos') ||
+        lower.contains('kemeja')) {
+      return CupertinoIcons.tag;
+    }
+    if (lower.contains('buku')) return CupertinoIcons.book;
+    if (lower.contains('sepatu')) return Icons.do_not_step;
+    if (lower.contains('tas')) return CupertinoIcons.bag;
+    if (lower.contains('olahraga')) return CupertinoIcons.sportscourt;
+    return CupertinoIcons.square_grid_2x2;
   }
 
   String _formatRupiah(num v) {
-    final s = v.toStringAsFixed(0);
-    final chars = s.split('');
-    final out = <String>[];
-    for (int i = 0; i < chars.length; i++) {
-      final idxFromEnd = chars.length - i;
-      out.add(chars[i]);
-      if (idxFromEnd > 1 && idxFromEnd % 3 == 1) out.add('.');
-    }
-    return 'Rp ${out.join()}';
+    return 'Rp ${v.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.')}';
   }
 
   Widget _stars(double rating) {
@@ -218,6 +116,160 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
     );
   }
 
+  /// chats.product_id NOT NULL -> pakai product pertama seller sebagai context chat
+  Future<String?> _createOrGetChatRoom({required String productId}) async {
+    final user = _client.auth.currentUser;
+    if (user == null) return null;
+
+    try {
+      final existing = await _client
+          .from('chats')
+          .select('id')
+          .eq('buyer_id', user.id)
+          .eq('seller_id', widget.sellerId)
+          .eq('product_id', productId)
+          .maybeSingle();
+
+      if (existing != null) return existing['id'].toString();
+
+      final inserted = await _client
+          .from('chats')
+          .insert({
+            'buyer_id': user.id,
+            'seller_id': widget.sellerId,
+            'product_id': productId,
+            'last_message': 'Mulai chat',
+            'created_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .select('id')
+          .single();
+
+      return inserted['id'].toString();
+    } catch (e) {
+      debugPrint('Chat error: $e');
+      return null;
+    }
+  }
+
+  Future<void> _loadAll() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final sellerRes = await _client
+          .from('sellers')
+          .select(
+            'id, name, username, description, location, photo_url, created_at',
+          )
+          .eq('id', widget.sellerId)
+          .maybeSingle();
+
+      if (sellerRes == null) throw Exception('Seller tidak ditemukan.');
+
+      final prodRes = await _client
+          .from('products')
+          .select(
+            'id, name, price, discount_price, created_at, seller_id, category_id, category:categories(id,name)',
+          )
+          .eq('seller_id', widget.sellerId)
+          .order('created_at', ascending: false);
+
+      final products = (prodRes as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+
+      final productIds = products.map((p) => p['id'].toString()).toList();
+
+      /// ✅ Bulk ambil cover image untuk grid produk seller
+      final Map<String, String> coverByProduct = {};
+      if (productIds.isNotEmpty) {
+        final imgRes = await _client
+            .from('product_images')
+            .select('product_id, image_url, order_index, display_order')
+            .inFilter('product_id', productIds)
+            .order('display_order', ascending: true)
+            .order('order_index', ascending: true);
+
+        for (final row in (imgRes as List)) {
+          final m = Map<String, dynamic>.from(row as Map);
+          final pid = (m['product_id'] ?? '').toString();
+          coverByProduct.putIfAbsent(
+            pid,
+            () => _publicImageUrl((m['image_url'] ?? '').toString()),
+          );
+        }
+      }
+
+      for (final p in products) {
+        final pid = p['id'].toString();
+        p['primary_image_url'] = coverByProduct[pid] ?? '';
+      }
+
+      /// Categories unique
+      final Map<String, Map<String, dynamic>> catMap = {};
+      for (final p in products) {
+        final cat = p['category'];
+        if (cat is Map && cat['id'] != null) {
+          final id = cat['id'].toString();
+          final name = (cat['name'] ?? 'Kategori').toString();
+          catMap.putIfAbsent(id, () => {'id': id, 'name': name, 'count': 0});
+          catMap[id]!['count'] = (catMap[id]!['count'] as int) + 1;
+        }
+      }
+      final categoriesList = catMap.values.toList()
+        ..sort((a, b) => (a['name'] as String).compareTo(b['name'] as String));
+
+      /// Reviews
+      double avg = 0;
+      int count = 0;
+      final List<Map<String, dynamic>> reviews = [];
+
+      if (productIds.isNotEmpty) {
+        final revRes = await _client
+            .from('product_reviews')
+            .select(
+              'id, product_id, rating, comment, created_at, user:users(id, full_name, username, profile_image_url, photo_url)',
+            )
+            .inFilter('product_id', productIds)
+            .order('created_at', ascending: false);
+
+        for (final r in (revRes as List)) {
+          reviews.add(Map<String, dynamic>.from(r as Map));
+        }
+
+        final ratings = reviews
+            .map((e) => e['rating'])
+            .where((x) => x != null)
+            .map((x) => (x as num).toDouble())
+            .toList();
+
+        count = ratings.length;
+        if (count > 0) {
+          final sum = ratings.fold<double>(0, (a, b) => a + b);
+          avg = sum / count;
+        }
+      }
+
+      setState(() {
+        _seller = Map<String, dynamic>.from(sellerRes);
+        _products = products;
+        _categories = categoriesList;
+        _reviews = reviews;
+        _avgRating = avg;
+        _reviewCount = count;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -226,35 +278,10 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
         body: Center(child: CircularProgressIndicator()),
       );
     }
-
     if (_error != null) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Profil Penjual'),
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black,
-          elevation: 0,
-        ),
         backgroundColor: Colors.white,
-        body: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                '❌ Gagal memuat data:',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Text(_error!),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: _loadAll,
-                child: const Text('Coba lagi'),
-              ),
-            ],
-          ),
-        ),
+        body: Center(child: Text('Error: $_error')),
       );
     }
 
@@ -309,7 +336,7 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
                       clipBehavior: Clip.hardEdge,
                       child: photoUrl.isNotEmpty
                           ? Image.network(
-                              photoUrl,
+                              _publicImageUrl(photoUrl),
                               fit: BoxFit.cover,
                               errorBuilder: (_, __, ___) => const Icon(
                                 CupertinoIcons.person_fill,
@@ -359,6 +386,7 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
                         fontSize: 12,
                       ),
                     ),
+
                     const SizedBox(height: 12),
                     SizedBox(
                       width: double.infinity,
@@ -371,11 +399,44 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
                           ),
                           padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Nanti diarahkan ke halaman chat 😊',
+                        onPressed: () async {
+                          if (_products.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Seller belum punya produk'),
+                              ),
+                            );
+                            return;
+                          }
+
+                          final productId = _products.first['id'].toString();
+                          final productName = (_products.first['name'] ?? '')
+                              .toString();
+
+                          final chatId = await _createOrGetChatRoom(
+                            productId: productId,
+                          );
+                          if (!context.mounted) return;
+
+                          if (chatId == null) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Gagal membuka chat'),
+                              ),
+                            );
+                            return;
+                          }
+
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ChatPage(
+                                chatId: chatId,
+                                sellerId: widget.sellerId,
+                                sellerName: sellerName,
+                                sellerAvatarUrl: _publicImageUrl(photoUrl),
+                                productId: productId,
+                                productName: productName,
                               ),
                             ),
                           );
@@ -383,6 +444,7 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
                         child: const Text('Chat Penjual'),
                       ),
                     ),
+
                     const SizedBox(height: 12),
                     Container(
                       height: 42,
@@ -412,6 +474,7 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
                 ),
               ),
             ),
+
             Expanded(
               child: TabBarView(
                 children: [_productsTab(), _categoriesTab(), _reviewsTab()],
@@ -438,23 +501,22 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
       itemBuilder: (context, i) {
         final p = _products[i];
         final name = (p['name'] ?? '').toString();
+
         final num price = (p['price'] ?? 0) as num;
         final num? discount = p['discount_price'] == null
             ? null
             : (p['discount_price'] as num);
         final num shown = (discount != null && discount > 0) ? discount : price;
+
         final img = (p['primary_image_url'] ?? '').toString();
 
         return InkWell(
-          onTap: () {
-            final pid = p['id'].toString();
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => ProductDetailView(productId: pid),
-              ),
-            );
-          },
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ProductDetailView(productId: p['id'].toString()),
+            ),
+          ),
           child: Container(
             decoration: BoxDecoration(
               color: Colors.white,
@@ -479,6 +541,7 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
                         ? Image.network(
                             img,
                             fit: BoxFit.cover,
+                            width: double.infinity,
                             errorBuilder: (_, __, ___) => Container(
                               color: pillBg,
                               child: const Icon(
@@ -523,17 +586,6 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
     if (_categories.isEmpty)
       return const Center(child: Text('Belum ada kategori'));
 
-    IconData iconFor(String name) {
-      final n = name.toLowerCase();
-      if (n.contains('pakaian')) return CupertinoIcons.tag;
-      if (n.contains('sepatu')) return CupertinoIcons.sportscourt;
-      if (n.contains('tas')) return CupertinoIcons.bag;
-      if (n.contains('topi')) return CupertinoIcons.capsule;
-      if (n.contains('alat') || n.contains('peralatan'))
-        return CupertinoIcons.hammer;
-      return CupertinoIcons.tag;
-    }
-
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
       itemCount: _categories.length,
@@ -567,7 +619,7 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
                 color: pillBg,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(iconFor(name), color: primaryBlue),
+              child: Icon(_getCategoryIcon(name), color: primaryBlue),
             ),
             title: Text(
               name,
@@ -581,13 +633,17 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
               CupertinoIcons.chevron_forward,
               color: Colors.black38,
             ),
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Nanti: filter produk kategori "$name"'),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => CategoryProductsPage(
+                  sellerId: widget.sellerId,
+                  categoryName: name,
+                  categoryId: c['id'].toString(),
+                  publicImageUrl: _publicImageUrl,
                 ),
-              );
-            },
+              ),
+            ),
           ),
         );
       },
@@ -596,21 +652,7 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
 
   Widget _reviewsTab() {
     if (_reviews.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text('Belum ada ulasan'),
-            const SizedBox(height: 10),
-            Text(
-              _reviewCount > 0
-                  ? 'rating ${_avgRating.toStringAsFixed(1)}/5'
-                  : 'rating -',
-              style: const TextStyle(color: Colors.black54),
-            ),
-          ],
-        ),
-      );
+      return const Center(child: Text('Belum ada ulasan'));
     }
 
     return ListView.separated(
@@ -662,7 +704,7 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
                 clipBehavior: Clip.hardEdge,
                 child: avatar.isNotEmpty
                     ? Image.network(
-                        avatar,
+                        _publicImageUrl(avatar),
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => const Icon(
                           CupertinoIcons.person_fill,
@@ -697,6 +739,222 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
           ),
         );
       },
+    );
+  }
+}
+
+/// ✅ CategoryProductsPage: Stateful + bulk fetch cover images
+class CategoryProductsPage extends StatefulWidget {
+  final String sellerId;
+  final String categoryName;
+  final String categoryId;
+
+  final String Function(String path) publicImageUrl;
+
+  const CategoryProductsPage({
+    super.key,
+    required this.sellerId,
+    required this.categoryName,
+    required this.categoryId,
+    required this.publicImageUrl,
+  });
+
+  @override
+  State<CategoryProductsPage> createState() => _CategoryProductsPageState();
+}
+
+class _CategoryProductsPageState extends State<CategoryProductsPage> {
+  static const primaryBlue = Color(0xFF2563FF);
+  static const pillBg = Color(0xFFE9F0FF);
+
+  bool _loading = true;
+  String? _error;
+
+  List<Map<String, dynamic>> _items = [];
+  final Map<String, String> _coverByProduct = {}; // product_id -> url
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  String _formatRupiah(num v) {
+    return 'Rp ${v.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.')}';
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final client = Supabase.instance.client;
+
+      // 1) Load products in category
+      final res = await client
+          .from('products')
+          .select('id, name, price, discount_price')
+          .eq('seller_id', widget.sellerId)
+          .eq('category_id', widget.categoryId)
+          .order('created_at', ascending: false);
+
+      final list = (res as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+
+      final ids = list.map((e) => e['id'].toString()).toList();
+
+      // 2) Bulk load cover images (order by display_order/order_index)
+      _coverByProduct.clear();
+      if (ids.isNotEmpty) {
+        final imgRes = await client
+            .from('product_images')
+            .select('product_id, image_url, display_order, order_index')
+            .inFilter('product_id', ids)
+            .order('display_order', ascending: true)
+            .order('order_index', ascending: true);
+
+        for (final row in (imgRes as List)) {
+          final m = Map<String, dynamic>.from(row as Map);
+          final pid = (m['product_id'] ?? '').toString();
+          _coverByProduct.putIfAbsent(
+            pid,
+            () => widget.publicImageUrl((m['image_url'] ?? '').toString()),
+          );
+        }
+      }
+
+      // 3) Attach primary_image_url to each product
+      for (final p in list) {
+        final pid = p['id'].toString();
+        p['primary_image_url'] = _coverByProduct[pid] ?? '';
+      }
+
+      setState(() {
+        _items = list;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFF),
+      appBar: AppBar(
+        title: Text(widget.categoryName),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+          ? Center(child: Text('Error: $_error'))
+          : _items.isEmpty
+          ? const Center(child: Text('Tidak ada produk'))
+          : GridView.builder(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                childAspectRatio: 0.78,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+              ),
+              itemCount: _items.length,
+              itemBuilder: (context, i) {
+                final p = _items[i];
+
+                final name = (p['name'] ?? '').toString();
+                final num price = (p['price'] ?? 0) as num;
+                final num? discount = p['discount_price'] == null
+                    ? null
+                    : (p['discount_price'] as num);
+                final num shown = (discount != null && discount > 0)
+                    ? discount
+                    : price;
+
+                final img = (p['primary_image_url'] ?? '').toString();
+
+                return InkWell(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          ProductDetailView(productId: p['id'].toString()),
+                    ),
+                  ),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.05),
+                          blurRadius: 12,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                    padding: const EdgeInsets.all(10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        AspectRatio(
+                          aspectRatio: 1.2,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: img.isNotEmpty
+                                ? Image.network(
+                                    img,
+                                    fit: BoxFit.cover,
+                                    width: double.infinity,
+                                    errorBuilder: (_, __, ___) => Container(
+                                      color: pillBg,
+                                      child: const Icon(
+                                        CupertinoIcons.photo,
+                                        color: primaryBlue,
+                                      ),
+                                    ),
+                                  )
+                                : Container(
+                                    color: pillBg,
+                                    child: const Icon(
+                                      CupertinoIcons.photo,
+                                      color: primaryBlue,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          _formatRupiah(shown),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: primaryBlue,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
     );
   }
 }
