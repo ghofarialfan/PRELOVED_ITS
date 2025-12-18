@@ -67,7 +67,7 @@ class Product {
       imageUrl: (json['image_url'] ?? json['imageUrl'])?.toString(),
       createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : (json['createdAt'] != null ? DateTime.parse(json['createdAt']) : null),
       updatedAt: json['updated_at'] != null ? DateTime.parse(json['updated_at']) : (json['updatedAt'] != null ? DateTime.parse(json['updatedAt']) : null),
-      discountPrice: json['discount_price'] is num ? json['discount_price'] as num : (num.tryParse(json['discount_price']?.toString() ?? '') ?? null),
+      discountPrice: json['discount_price'] is num ? json['discount_price'] as num : (num.tryParse(json['discount_price']?.toString() ?? '')),
       condition: json['condition'],
       totalReviews: json['total_reviews'] ?? json['totalReviews'],
       images: productImages,

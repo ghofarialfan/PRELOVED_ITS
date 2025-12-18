@@ -163,7 +163,7 @@ class _ResetNewPasswordPageState extends State<ResetNewPasswordPage> {
                             backgroundColor: _primary,
                             foregroundColor: Colors.white,
                             disabledBackgroundColor:
-                                _primary.withOpacity(0.6),
+                                _primary.withValues(alpha: 0.6),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(26),
                             ),

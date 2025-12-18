@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:ui';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -11,6 +12,8 @@ import 'orders_page.dart';
 import 'edit_profile_page.dart';
 import 'edit_photo_page.dart';
 import 'favorites_page.dart';
+import 'cart/cart_page.dart';
+import 'payment/payment_success_view.dart';
 
 // auth pages
 import 'auth/login_email_page.dart';
@@ -44,6 +47,14 @@ class MyApp extends StatelessWidget {
         textTheme: GoogleFonts.nunitoSansTextTheme(),
         primaryColor: const Color(0xFF0051FF),
       ),
+      scrollBehavior: const MaterialScrollBehavior().copyWith(
+        dragDevices: {
+          PointerDeviceKind.mouse,
+          PointerDeviceKind.touch,
+          PointerDeviceKind.stylus,
+          PointerDeviceKind.unknown,
+        },
+      ),
 
       // ENTRY POINT UTAMA
       home: const AuthGate(),
@@ -56,6 +67,8 @@ class MyApp extends StatelessWidget {
         '/edit_profile': (context) => const EditProfilePage(),
         '/edit_photo': (context) => const EditPhotoPage(),
         '/favorites': (context) => const FavoritesPage(),
+        '/cart': (context) => const CartPage(),
+        '/payment_success': (context) => const PaymentSuccessView(),
 
         // auth
         '/login': (context) => const LoginEmailPage(),

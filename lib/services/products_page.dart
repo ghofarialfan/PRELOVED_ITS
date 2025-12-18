@@ -3,7 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/product.dart'; 
-import '../Product/product_detail_view.dart';
+import '../product/product_detail_view.dart';
 
 class ProductsPage extends StatefulWidget {
   final String? category;
@@ -32,8 +32,75 @@ class _ProductsPageState extends State<ProductsPage> {
     super.initState();
     if (widget.category != null) {
       _selectedCategory = widget.category!;
+      if (!_categories.contains(_selectedCategory) && _selectedCategory != 'Semua') {
+        _categories.add(_selectedCategory);
+      }
     }
     _loadProducts();
+  }
+
+  Future<List<Map<String, dynamic>>> _withPublicImageAsync(List<dynamic> rows) async {
+    final client = Supabase.instance.client;
+    final maps = rows.map((e) => Map<String, dynamic>.from(e as Map<String, dynamic>)).toList();
+    final ids = maps.map((m) => (m['id'] ?? '').toString()).where((id) => id.isNotEmpty).toList();
+    if (ids.isEmpty) return maps;
+    try {
+      final grouped = <String, String>{};
+      final coverIdByProduct = <String, String>{};
+      for (final m in maps) {
+        final pid = (m['id'] ?? '').toString();
+        final cid = (m['product_image_id'] ?? '').toString();
+        if (pid.isNotEmpty && cid.isNotEmpty) coverIdByProduct[pid] = cid;
+      }
+      if (coverIdByProduct.isNotEmpty) {
+        final coverIds = coverIdByProduct.values.toList();
+        final coverRows = await client
+            .from('product_images')
+            .select('id, image_url')
+            .filter('id', 'in', '(${coverIds.map((e) => '"$e"').join(",")})');
+        final byId = <String, String>{};
+        for (final row in (coverRows as List<dynamic>)) {
+          final id = (row as Map)['id'].toString();
+          final path = (row['image_url'] ?? '').toString();
+          if (id.isNotEmpty && path.isNotEmpty) byId[id] = path;
+        }
+        coverIdByProduct.forEach((pid, cid) {
+          final path = byId[cid];
+          if (path != null && path.isNotEmpty) grouped[pid] = path;
+        });
+      }
+      final missing = ids.where((pid) => !grouped.containsKey(pid));
+      for (final pid in missing) {
+        final img = await client
+            .from('product_images')
+            .select('image_url, order_index')
+            .eq('product_id', pid)
+            .order('order_index', ascending: true)
+            .limit(1)
+            .maybeSingle();
+        final path = (img?['image_url'] ?? '').toString();
+        if (path.isNotEmpty) grouped[pid] = path;
+      }
+      for (final m in maps) {
+        final pid = (m['id'] ?? '').toString();
+        var path = grouped[pid] ?? '';
+        if (path.isNotEmpty) {
+          if (path.startsWith('http')) {
+            m['image_url'] = path;
+          } else {
+            var normalized = path.trim();
+            normalized = normalized.replaceFirst(RegExp(r'^/+'), '');
+            if (!normalized.contains('/')) {
+              normalized = 'products/$normalized';
+            }
+            m['image_url'] = client.storage.from('products').getPublicUrl(normalized);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Attach images error: $e');
+    }
+    return maps;
   }
 
   Future<void> _loadProducts() async {
@@ -49,35 +116,12 @@ class _ProductsPageState extends State<ProductsPage> {
           .select('*')
           .order('created_at', ascending: false);
 
+      final mappedProducts = await _withPublicImageAsync(response as List<dynamic>);
+
       final productsList = <Product>[];
       
-      // Response dari Supabase selalu List
-      for (var item in response) {
+      for (var item in mappedProducts) {
         final productMap = Map<String, dynamic>.from(item);
-        
-        // Proses Gambar: Mengubah Path Relatif menjadi URL Lengkap
-        final imagesRaw = productMap['product_images'];
-        if (imagesRaw != null && imagesRaw is List && imagesRaw.isNotEmpty) {
-          final images = imagesRaw
-              .map((img) => img is Map ? Map<String, dynamic>.from(img) : null)
-              .where((img) => img != null)
-              .cast<Map<String, dynamic>>()
-              .toList();
-          
-          images.sort((a, b) => (a['order_index'] ?? 0).compareTo(b['order_index'] ?? 0));
-          
-          final featuredImage = images.isNotEmpty ? images.first : <String, dynamic>{};
-          final imagePath = featuredImage['image_url'] as String?;
-          
-          if (imagePath != null && imagePath.isNotEmpty && !imagePath.startsWith('http')) {
-            try {
-              final publicUrl = client.storage.from(_storageBucketName).getPublicUrl(imagePath);
-              productMap['image_url'] = publicUrl;
-            } catch (e) {
-              debugPrint('Error getting public URL: $e');
-            }
-          }
-        }
         
         // Get average rating
         try {
@@ -233,12 +277,12 @@ class _ProductsPageState extends State<ProductsPage> {
                     : RefreshIndicator(
                         onRefresh: _loadProducts,
                         child: GridView.builder(
-                          padding: const EdgeInsets.all(12),
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                             crossAxisCount: 2,
                             childAspectRatio: 0.65,
-                            crossAxisSpacing: 12,
-                            mainAxisSpacing: 12,
+                            crossAxisSpacing: 10,
+                            mainAxisSpacing: 10,
                           ),
                           itemCount: _filteredProducts.length,
                           itemBuilder: (context, index) {
@@ -254,6 +298,10 @@ class _ProductsPageState extends State<ProductsPage> {
   }
 
   Widget _buildProductCard(Product product) {
+    const textDark = Color(0xFF1F2937);
+    const textGrey = Color(0xFF6B7280);
+    const primaryBlue = Color(0xFF2563FF);
+
     final displayPrice = product.discountPrice ?? product.price;
     final hasDiscount = product.discountPrice != null;
     
@@ -272,9 +320,9 @@ class _ProductsPageState extends State<ProductsPage> {
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
+              color: Colors.black.withValues(alpha: 0.04),
               blurRadius: 8,
-              offset: const Offset(0, 2),
+              offset: const Offset(0, 4),
             ),
           ],
         ),
@@ -286,9 +334,9 @@ class _ProductsPageState extends State<ProductsPage> {
               children: [
                 Container(
                   height: 160,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[200],
-                    borderRadius: const BorderRadius.only(
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFE9F0FF),
+                    borderRadius: BorderRadius.only(
                       topLeft: Radius.circular(12),
                       topRight: Radius.circular(12),
                     ),
@@ -303,25 +351,12 @@ class _ProductsPageState extends State<ProductsPage> {
                             product.imageUrl!, 
                             width: double.infinity,
                             fit: BoxFit.cover,
-                            headers: const {'Cache-Control': 'no-cache'}, 
                             errorBuilder: (context, error, stackTrace) {
                               return Center(
                                 child: Icon(
                                   Icons.broken_image, 
-                                  size: 50,
+                                  size: 40,
                                   color: Colors.grey[400],
-                                ),
-                              );
-                            },
-                            loadingBuilder: (context, child, loadingProgress) {
-                              if (loadingProgress == null) return child;
-                              return Center(
-                                child: CircularProgressIndicator(
-                                  color: Colors.blue,
-                                  value: loadingProgress.expectedTotalBytes != null
-                                      ? loadingProgress.cumulativeBytesLoaded /
-                                          loadingProgress.expectedTotalBytes!
-                                      : null,
                                 ),
                               );
                             },
@@ -329,7 +364,7 @@ class _ProductsPageState extends State<ProductsPage> {
                         : Center(
                             child: Icon(
                               Icons.image,
-                              size: 50,
+                              size: 40,
                               color: Colors.grey[400],
                             ),
                           ),
@@ -343,8 +378,8 @@ class _ProductsPageState extends State<ProductsPage> {
                     right: 8,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
+                        horizontal: 6,
+                        vertical: 2,
                       ),
                       decoration: BoxDecoration(
                         color: Colors.red,
@@ -367,8 +402,8 @@ class _ProductsPageState extends State<ProductsPage> {
                   left: 8,
                   child: Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
+                      horizontal: 6,
+                      vertical: 2,
                     ),
                     decoration: BoxDecoration(
                       color: product.condition == 'new' 
@@ -392,30 +427,30 @@ class _ProductsPageState extends State<ProductsPage> {
             // Product Info
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(10),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Category Badge
                     Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
+                        horizontal: 6,
+                        vertical: 2,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.blue.withValues(alpha: 0.1),
+                        color: primaryBlue.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
                         product.category, 
                         style: TextStyle(
                           fontSize: 10,
-                          color: Colors.blue[700],
+                          color: primaryBlue,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
 
                     // Product Name
                     Text(
@@ -423,9 +458,8 @@ class _ProductsPageState extends State<ProductsPage> {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        height: 1.2,
+                        fontSize: 12,
+                        color: textGrey,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -444,14 +478,15 @@ class _ProductsPageState extends State<ProductsPage> {
                           style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
+                            color: textDark,
                           ),
                         ),
-                        const SizedBox(width: 4),
+                        const SizedBox(width: 2),
                         Text(
                           '(${product.totalReviews ?? 0})', 
                           style: TextStyle(
                             fontSize: 10,
-                            color: Colors.grey[600],
+                            color: Colors.grey[500],
                           ),
                         ),
                       ],
@@ -463,19 +498,18 @@ class _ProductsPageState extends State<ProductsPage> {
                       Text(
                         'Rp ${_formatPrice(product.price)}', 
                         style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
+                          fontSize: 10,
+                          color: Colors.grey[500],
                           decoration: TextDecoration.lineThrough,
                         ),
                       ),
-                      const SizedBox(height: 2),
                     ],
                     Text(
                       'Rp ${_formatPrice(displayPrice)}',
                       style: const TextStyle(
-                        fontSize: 16,
+                        fontSize: 14,
                         fontWeight: FontWeight.bold,
-                        color: Colors.blue,
+                        color: textDark,
                       ),
                     ),
                   ],

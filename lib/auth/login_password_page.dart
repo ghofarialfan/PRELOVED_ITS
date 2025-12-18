@@ -116,7 +116,7 @@ class _LoginPasswordPageState extends State<LoginPasswordPage> {
                     BoxShadow(
                       blurRadius: 18,
                       offset: const Offset(0, 8),
-                      color: Colors.black.withOpacity(0.08),
+                      color: Colors.black.withValues(alpha: 0.08),
                     )
                   ],
                 ),

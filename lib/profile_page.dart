@@ -35,9 +35,11 @@ class _ProfilePageState extends State<ProfilePage> {
 
       final res = await client
           .from('users')
-          .select('full_name, photo_url, avatar_url')
+          .select()
           .eq('id', user.id)
           .maybeSingle();
+
+      debugPrint('ProfilePage loaded user: $res');
 
       // ambil dari DB dulu
       final dbName = (res?['full_name'] ?? '').toString().trim();
@@ -136,7 +138,10 @@ class _ProfilePageState extends State<ProfilePage> {
             padding: const EdgeInsets.all(16),
             children: [
               InkWell(
-                onTap: () => Navigator.pushNamed(context, '/edit_profile'),
+                onTap: () async {
+                  await Navigator.pushNamed(context, '/edit_profile');
+                  if (mounted) _loadUserProfile();
+                },
                 child: Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -252,6 +257,10 @@ class _ProfilePageState extends State<ProfilePage> {
           }
           if (i == 2) {
             Navigator.pushNamed(context, '/orders');
+            return;
+          }
+          if (i == 3) {
+            Navigator.pushNamed(context, '/cart');
             return;
           }
           setState(() => _selectedIndex = i);

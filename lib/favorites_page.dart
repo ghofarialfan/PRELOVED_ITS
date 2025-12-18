@@ -386,6 +386,10 @@ class _FavoritesPageState extends State<FavoritesPage> {
             Navigator.pushNamed(context, '/orders');
             return;
           }
+          if (i == 3) {
+            Navigator.pushNamed(context, '/cart');
+            return;
+          }
           if (i == 4) {
             Navigator.pushNamed(context, '/profile');
             return;
