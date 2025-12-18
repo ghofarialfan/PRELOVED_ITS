@@ -36,6 +36,118 @@ class _PaymentPageState extends State<PaymentPage> {
     _loadData();
   }
 
+  Future<String?> _findSellerUserId(
+    String? sellerProductId,
+    String? sellerNameHint,
+  ) async {
+    try {
+      final client = Supabase.instance.client;
+      // 1) Try direct mapping: product.seller_id is already users.id
+      if (sellerProductId != null && sellerProductId.isNotEmpty) {
+        final userById = await client
+            .from('users')
+            .select('id')
+            .eq('id', sellerProductId)
+            .maybeSingle();
+        final uid1 = (userById?['id'] ?? '').toString();
+        if (uid1.isNotEmpty) return uid1;
+      }
+      // 2) Try by username hint from product payload
+      if (sellerNameHint != null && sellerNameHint.isNotEmpty) {
+        final userByUsername = await client
+            .from('users')
+            .select('id')
+            .eq('username', sellerNameHint)
+            .maybeSingle();
+        final uid2 = (userByUsername?['id'] ?? '').toString();
+        if (uid2.isNotEmpty) return uid2;
+      }
+      // 3) Try via sellers table: get username, then map to users.id
+      if (sellerProductId != null && sellerProductId.isNotEmpty) {
+        final sellerRow = await client
+            .from('sellers')
+            .select('username')
+            .eq('id', sellerProductId)
+            .maybeSingle();
+        final uname = (sellerRow?['username'] ?? '').toString();
+        if (uname.isNotEmpty) {
+          final userByUname = await client
+              .from('users')
+              .select('id')
+              .eq('username', uname)
+              .maybeSingle();
+          final uid3 = (userByUname?['id'] ?? '').toString();
+          if (uid3.isNotEmpty) return uid3;
+        }
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<String?> _createPendingOrderAndClearCart() async {
+    try {
+      final client = Supabase.instance.client;
+      final user = client.auth.currentUser;
+      if (user == null) return null;
+      final first = widget.items.isNotEmpty ? widget.items.first : null;
+      final sellerId = first == null
+          ? null
+          : (first['seller_id'] ?? '')?.toString();
+      final sellerNameHint = first == null
+          ? null
+          : (first['seller_name'] ?? '')?.toString();
+      final sellerUserId = await _findSellerUserId(sellerId, sellerNameHint);
+      final resolvedSellerId = (sellerUserId != null && sellerUserId.isNotEmpty)
+          ? sellerUserId
+          : (sellerId ?? '');
+      if (resolvedSellerId.isEmpty) return null;
+      final inserted = await client
+          .from('orders')
+          .insert({
+            'buyer_id': user.id,
+            'seller_id': resolvedSellerId,
+            'status': 'pending',
+            'shipping_fee': _shippingCost,
+            'total_price': _grandTotal,
+            'address_receiver': _addressName,
+            'address_line': _addressLine,
+            'address_phone': _contactPhone,
+          })
+          .select('id')
+          .single();
+      final orderId = (inserted['id'] ?? '').toString();
+      if (orderId.isEmpty) return null;
+      for (final m in widget.items) {
+        final pid = (m['id'] ?? '').toString();
+        final qty = (m['quantity'] ?? 0) as num;
+        final price = (m['discount_price'] ?? m['price'] ?? 0) as num;
+        if (pid.isEmpty) continue;
+        await client.from('order_items').insert({
+          'order_id': orderId,
+          'product_id': pid,
+          'qty': qty,
+          'price_at_buy': price,
+        });
+      }
+      final ids = widget.items
+          .map((m) => (m['cart_id'] ?? '').toString())
+          .where((s) => s.isNotEmpty)
+          .toList();
+      for (final cid in ids) {
+        await client
+            .from('carts')
+            .delete()
+            .eq('id', cid)
+            .eq('user_id', user.id);
+      }
+      return orderId;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _loadData() async {
     await initializeDateFormatting('id_ID', null);
     setState(() => _loading = true);
@@ -315,7 +427,7 @@ class _PaymentPageState extends State<PaymentPage> {
           color: Colors.white,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 10,
               offset: const Offset(0, -5),
             ),
@@ -431,38 +543,37 @@ class _PaymentPageState extends State<PaymentPage> {
   }
 
   Future<void> _processPayment() async {
-    if (widget.orderId == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Order ID missing')));
-      return;
-    }
-
     setState(() => _loading = true);
+    String? id = widget.orderId;
     try {
       final client = Supabase.instance.client;
-
-      // Update order with final details
+      if (id == null || id.isEmpty) {
+        id = await _createPendingOrderAndClearCart();
+        if (id == null || id.isEmpty) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Gagal membuat order')));
+          return;
+        }
+      }
       await client
           .from('orders')
           .update({
-            'status': 'dikemas',
+            'status': 'processing',
             'shipping_fee': _shippingCost,
             'total_price': _grandTotal,
-            'address_name': _addressName,
+            'address_receiver': _addressName,
             'address_line': _addressLine,
             'address_phone': _contactPhone,
-            'address_email': _contactEmail,
           })
-          .eq('id', widget.orderId!);
-
+          .eq('id', id);
       if (!mounted) return;
-      Navigator.pushNamedAndRemoveUntil(
-        context,
-        '/orders',
-        (route) => route.isFirst,
-        arguments: 'Dalam Proses',
-      );
+      if (mounted) setState(() => _loading = false);
+      if (_paymentMethod == 'qris') {
+        await _showQrisSheet(id);
+      } else {
+        await _showCardPaymentSheet(id);
+      }
     } catch (e) {
       ScaffoldMessenger.of(
         context,
@@ -493,7 +604,7 @@ class _PaymentPageState extends State<PaymentPage> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 5),
         ],
       ),
       child: Column(
@@ -535,7 +646,9 @@ class _PaymentPageState extends State<PaymentPage> {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.blue.withOpacity(0.1) : Colors.grey[100],
+          color: isSelected
+              ? Colors.blue.withValues(alpha: 0.1)
+              : Colors.grey[100],
           borderRadius: BorderRadius.circular(8),
           border: isSelected ? Border.all(color: Colors.blue) : null,
         ),
@@ -582,7 +695,9 @@ class _PaymentPageState extends State<PaymentPage> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.blue.withOpacity(0.1) : Colors.grey[100],
+          color: isSelected
+              ? Colors.blue.withValues(alpha: 0.1)
+              : Colors.grey[100],
           borderRadius: BorderRadius.circular(20),
           border: isSelected ? Border.all(color: Colors.blue) : null,
         ),
@@ -659,6 +774,7 @@ class _PaymentPageState extends State<PaymentPage> {
                     const SizedBox(height: 8),
                     TextField(
                       controller: _phoneCtrl,
+                      keyboardType: TextInputType.phone,
                       decoration: const InputDecoration(
                         border: OutlineInputBorder(),
                         hintText: 'Nomor telepon',
@@ -689,6 +805,7 @@ class _PaymentPageState extends State<PaymentPage> {
                         Expanded(
                           child: TextField(
                             controller: _postalCtrl,
+                            keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
                               border: OutlineInputBorder(),
                               hintText: 'Kode pos',
@@ -816,7 +933,7 @@ class _PaymentPageState extends State<PaymentPage> {
     );
   }
 
-  Future<void> _showCardPaymentSheet() async {
+  Future<void> _showCardPaymentSheet(String orderId) async {
     final result = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -987,7 +1104,7 @@ class _PaymentPageState extends State<PaymentPage> {
     }
   }
 
-  Future<void> _showQrisSheet() async {
+  Future<void> _showQrisSheet(String orderId) async {
     final result = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -1068,7 +1185,7 @@ class _PaymentPageState extends State<PaymentPage> {
       },
     );
     if (result == true) {
-      await _showPaymentSuccess(null, null);
+      await _showPaymentSuccess(orderId, null);
     }
   }
 
@@ -1238,50 +1355,5 @@ class _PaymentPageState extends State<PaymentPage> {
         );
       },
     );
-  }
-
-  // --- FUNGSI BARU YANG DITAMBAHKAN UNTUK MEMPERBAIKI ERROR ---
-  Future<String?> _createPendingOrderAndClearCart() async {
-    try {
-      final client = Supabase.instance.client;
-      final user = client.auth.currentUser;
-      if (user == null) return null;
-
-      // 1. Header Order
-      final orderRes = await client
-          .from('orders')
-          .insert({
-            'user_id': user.id,
-            'status': 'belum dibayar',
-            'total_price': _grandTotal,
-            'shipping_fee': _shippingCost,
-            'address_name': _addressName,
-            'address_line': _addressLine,
-            'address_phone': _contactPhone,
-            'address_email': _contactEmail,
-          })
-          .select('id')
-          .single();
-
-      final newOrderId = orderRes['id'].toString();
-
-      // 2. Order Items
-      for (var item in widget.items) {
-        await client.from('order_items').insert({
-          'order_id': newOrderId,
-          'product_id': item['product_id'] ?? item['id'],
-          'quantity': item['quantity'] ?? 1,
-          'price': item['discount_price'] ?? item['price'] ?? 0,
-        });
-      }
-
-      // 3. Clear Carts
-      await client.from('carts').delete().eq('user_id', user.id);
-
-      return newOrderId;
-    } catch (e) {
-      debugPrint('Error _createPendingOrderAndClearCart: $e');
-      return null;
-    }
   }
 }
