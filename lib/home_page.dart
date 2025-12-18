@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'product/product_detail_view.dart';
 import 'services/products_page.dart';
+import 'search_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -378,21 +379,33 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
             const SizedBox(height: 16),
-            TextField(
-              controller: _searchController,
-              onSubmitted: _onSearch,
-              textInputAction: TextInputAction.search,
-              decoration: InputDecoration(
-                hintText: 'Cari',
-                hintStyle: const TextStyle(color: textGrey),
-                prefixIcon: const Icon(CupertinoIcons.search, color: primaryBlue),
-                contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE5E7EB))),
-                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: primaryBlue, width: 2)),
-                filled: true,
-                fillColor: const Color(0xFFF9FAFB),
+            GestureDetector(
+            onTap: () {
+              // Membuka layar pencarian penuh menggunakan SearchDelegate
+              showSearch(
+                context: context,
+                delegate: CustomSearchDelegate(),
+              );
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                color: const Color(0xFFF9FAFB), // fillColor dari TextField
+                border: Border.all(color: const Color(0xFFE5E7EB)), // enabledBorder
+              ),
+              child: const Row(
+                children: [
+                  Icon(CupertinoIcons.search, color: Color(0xFF2563FF)),
+                  SizedBox(width: 12),
+                  Text(
+                    'Cari',
+                    style: TextStyle(color: Color(0xFF6B7280), fontSize: 16),
+                  ),
+                ],
               ),
             ),
+          ),
             const SizedBox(height: 20),
             if (_loading)
               const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()))
